@@ -1,0 +1,18 @@
+FIGURE_SETTINGS = {
+    "font.family": "Arial",
+    "font.size": 12,
+    "axes.titlesize": 14,
+    "axes.titleweight": "medium",
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 10,
+    "legend.title_fontsize": 11,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+}
+
+DEFAULT_FIGURE_SIZE = (7, 6)
+DEFAULT_LINEWIDTH = 2.5
+DEFAULT_GRID_ALPHA = 0.4
+
+FREQUENCY_TOLERANCE = 1e-3  # Tolerance for frequency matching in EIS experiments
