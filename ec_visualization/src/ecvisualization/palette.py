@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib.colors import hex2color, rgb2hex
 
 class NEIColorPalette:
     Colors = np.array(["#197643", "#1159A6", "#FF8000", "#74035C", "#DE173C", "#27C1CF"])
@@ -31,15 +32,44 @@ class NEIColorPalette:
         if not self.shadeable:
             raise ValueError(f"Color {self.__color} does not have defined shades.")
         
-        assert nShades > 0 and nShades <= len(self.__shades), \
-            f"nShades must be between 1 and {len(self.__shades)} for color {self.__color}"
+        if nShades < 1:
+            raise ValueError(f"nShades must be at least 1")
         
         if nShades == 1:
             return [self.color]
         
-        # Return the middle nShades
-        start_index = (len(self.__shades) - nShades) // 2
-        return self.__shades[start_index:start_index + nShades].tolist()
+        # Wenn weniger Farben als verfügbar angefordert: mittlere Farben nehmen
+        if nShades <= len(self.__shades):
+            start_index = (len(self.__shades) - nShades) // 2
+            return self.__shades[start_index:start_index + nShades].tolist()
+        
+        # Wenn mehr Farben angefordert: interpolieren zwischen existierenden Farben
+        shades = self.__shades.tolist()
+        result = []
+        
+        for i in range(nShades):
+            # Position im Bereich [0, len(shades)-1]
+            position = i * (len(shades) - 1) / (nShades - 1)
+            
+            # Finde die beiden umgebenden Farben
+            lower_idx = int(np.floor(position))
+            upper_idx = int(np.ceil(position))
+            
+            if lower_idx == upper_idx:
+                # Exakte Übereinstimmung
+                result.append(shades[lower_idx])
+            else:
+                # Interpoliere zwischen zwei Farben
+                t = position - lower_idx
+                color1_rgb = np.array(hex2color(shades[lower_idx]))
+                color2_rgb = np.array(hex2color(shades[upper_idx]))
+                
+                # Lineare Interpolation im RGB-Raum
+                interpolated_rgb = (1 - t) * color1_rgb + t * color2_rgb
+                interpolated_hex = rgb2hex(interpolated_rgb)
+                result.append(interpolated_hex)
+        
+        return result
     
     
 class ColoredObject:

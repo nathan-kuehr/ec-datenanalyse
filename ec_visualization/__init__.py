@@ -3,7 +3,7 @@ from .src.ecvisualization.eis import EIS
 
 
 # Plotting
-from .src.ecvisualization.plot import plot, bode
+from .src.ecvisualization.plot import plot, bode, fresponse, nyquist
 
 # Utilities
 from .src.ecvisualization.utils import Import, FileNameGroupSelector
@@ -14,6 +14,8 @@ __all__ = [
     "EIS",
     "plot",
     "bode",
+    "fresponse",
+    "nyquist",
     "Import",
     "FileNameGroupSelector",
     "NEIColorPalette",
