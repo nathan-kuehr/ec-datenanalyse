@@ -1,14 +1,14 @@
 # Data Classes
-from .src.ecvisualization.eis import EIS
+from .src.eis import EIS
 
 
 # Plotting
-from .src.ecvisualization.plot import plot, bode, fresponse, nyquist
+from .src.plot import plot, bode, fresponse, nyquist
 
 # Utilities
-from .src.ecvisualization.utils import Import, FileNameGroupSelector
-from .src.ecvisualization.palette import NEIColorPalette
-
+from .src.utils import FileNameGroupSelector as Selector
+from .src.palette import NEIColorPalette
+from .src.settings import _set as set
 
 __all__ = [
     "EIS",
@@ -16,7 +16,7 @@ __all__ = [
     "bode",
     "fresponse",
     "nyquist",
-    "Import",
-    "FileNameGroupSelector",
+    "Selector",
     "NEIColorPalette",
+    "set"
 ]
