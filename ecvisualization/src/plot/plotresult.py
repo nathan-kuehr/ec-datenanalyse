@@ -47,3 +47,4 @@ class PlotResult:
     
     def __del__(self):
         self.save()
+        plt.close(self.__figure)

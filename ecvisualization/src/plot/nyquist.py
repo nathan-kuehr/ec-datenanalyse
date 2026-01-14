@@ -54,7 +54,18 @@ class CovarianceVisualization:
         return np.array(positions), np.array(ellipses)
     
     @classmethod
-    def draw(cls, data: pd.DataFrame, ax: Axes, real: str, imag: str, ci: float = 0.95, color = "#808080") -> None:
+    def draw(cls, data: pd.DataFrame, ax: Axes, real: str, imag: str, errorbar, color = "#808080") -> None:
+
+        if isinstance(errorbar, tuple) and errorbar[0] == 'ci':
+            ci = errorbar[1]/100
+        elif isinstance(errorbar, float):
+            ci = errorbar/100
+        elif errorbar == "ci":
+                ci = 0.95
+        else:
+            raise ValueError(f"Unsupported errorbar specification for covariance visualization")
+        
+
         covData = CovarianceVisualization.calculate(data, real=real, imag=imag)
         positions, ellipses = CovarianceVisualization.ellipseParameters(covData, ci=ci)
 
@@ -88,11 +99,13 @@ def nyquist(data: EIS, title: str | None = None, Rmin: float = 60, Rspan: float 
     return __nyquist_data(data.data, title=title, Rmin=Rmin, Rspan=Rspan, offsetCorrect=offsetCorrect, **kwargs)
 
 @nyquist.register(pd.DataFrame)
-def __nyquist_data(data: pd.DataFrame, title: str | None = None, Rmin: float = 60, Rspan: float = 50, offsetCorrect: bool = True, drawCovs: bool = True, **kwargs) -> PlotResult:
+def __nyquist_data(data: pd.DataFrame, title: str | None = None, Rmin: float = 60, Rspan: float = 50, offsetCorrect: bool = True, **kwargs) -> PlotResult:
     config = {
         "x": "Resistance",
         "y": "Neg. Reactance"
     }
+
+    kwargs.setdefault("errorbar", ('ci', 95))
 
     # See if offset correction is desired
     if offsetCorrect:
@@ -100,12 +113,11 @@ def __nyquist_data(data: pd.DataFrame, title: str | None = None, Rmin: float = 6
         config["x"] = "Offset-Corrected Resistance"
 
     # Prepare data for mean & covs
-    if "hue" in kwargs:
-        hueGroup = kwargs["hue"]
-        grouped = data.groupby(["Frequency", hueGroup])
-    else:
-        hueGroup = "Experiment Group"
-        grouped = data.groupby(["Frequency"])
+    hueGroup = kwargs.get("hue", "Experiment Group")
+
+    GroupingArgs = {"hue", "style", "size"}
+    grouping = ["Frequency"] + [kwargs.get(arg) for arg in GroupingArgs if arg in kwargs]
+    grouped = data.groupby(grouping)
 
     meanData = grouped.agg({config["x"]: "mean", config["y"]: "mean", "Palette": "first"}).reset_index()
 
@@ -122,17 +134,17 @@ def __nyquist_data(data: pd.DataFrame, title: str | None = None, Rmin: float = 6
         ax.set_xlim(left=Rmin, right=Rmin + Rspan)
         ax.set_ylim(bottom=0, top=Rspan)
 
-        if drawCovs:
+        if kwargs.get("errorbar") is not None:
             grouped = data.groupby(hueGroup)
             for (_, group), line in zip(data.groupby(hueGroup), ax.lines):
                 color = line.get_color()
-                CovarianceVisualization.draw(group, ax, real=config["x"], imag=config["y"], ci=0.95, color=color)
+                CovarianceVisualization.draw(group, ax, real=config["x"], imag=config["y"], errorbar=kwargs.get("errorbar"), color=color)
                 line.set_zorder(2)  # Bring lines to front
 
     return PlotResult(title, fig, **kwargs)
 
 @nyquist.register(list)
-def __nyquist_multiple(data: list[EIS|pd.DataFrame], title: str | None = None, Rmin: float = 60, Rspan: float = 50, offsetCorrect: bool = True, drawCovs: bool = True, **kwargs) -> PlotResult:
+def __nyquist_multiple(data: list[EIS|pd.DataFrame], title: str | None = None, Rmin: float = 60, Rspan: float = 50, offsetCorrect: bool = True, **kwargs) -> PlotResult:
     if len(data) == 0:
         raise ValueError("Data list is empty.")
     
@@ -148,4 +160,4 @@ def __nyquist_multiple(data: list[EIS|pd.DataFrame], title: str | None = None, R
         mask = combinedData["Experiment Group"] == groupName
         combinedData.loc[mask, "Offset-Corrected Resistance"] = combinedData.loc[mask, "Offset-Corrected Resistance"] + offset
 
-    return nyquist(combinedData, title, Rmin=Rmin, Rspan=Rspan, offsetCorrect=offsetCorrect, drawCovs=drawCovs, **kwargs)
+    return nyquist(combinedData, title, Rmin=Rmin, Rspan=Rspan, offsetCorrect=offsetCorrect, **kwargs)

@@ -35,7 +35,7 @@ def __plot_single_eis_data(data: pd.DataFrame, x: str, y: str, title: str | None
     }
 
     kwargs.setdefault("linewidth", DEFAULT_LINEWIDTH)
-    kwargs.setdefault("errorbar", "ci")
+    kwargs.setdefault("errorbar", ('ci', 95))
     kwargs.setdefault("marker", DEFAULT_MARKER)
     kwargs.setdefault("markersize", DEFAULT_MARKER_SIZE)
     kwargs.setdefault("markeredgewidth", 0)
