@@ -120,31 +120,3 @@ class FileNameGroupSelector:
         parts = np.array(nameParts)[dropMask]
         return "_".join([self._rename(part) for part in parts])
     
-class CovarianceVisualization:
-
-    @classmethod
-    def calculate(cls, data: pd.DataFrame, real: str = "Offset-Corrected Resistance", imag: str = "Neg. Reactance"):
-        nF = data["Frequency"].nunique()
-        N = data["Name"].nunique()
-
-        grouped = data.groupby("Frequency")[[real, imag]]
-
-        f = grouped.index.to_numpy()
-        covs = (grouped.cov() / N).to_numpy().reshape(nF, 2, 2)
-
-        return np.column_stack((f, covs))
-    
-    @classmethod
-    def ellipseParameters(cls, covData: np.ndarray, ci: float = 0.95) -> np.ndarray:
-        from scipy.stats import chi2
-
-        chi2Val = chi2.ppf(ci, df=2)
-
-        ellipses = []
-        for freq, cov in covData:
-            eigvals, eigvecs = np.linalg.eigh(cov)
-            axes = np.sqrt(eigvals * chi2Val)
-            angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
-            ellipses.append((freq, axes[0], axes[1], angle))
-        
-        return np.array(ellipses)
