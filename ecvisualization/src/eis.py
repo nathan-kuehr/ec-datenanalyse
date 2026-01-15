@@ -248,6 +248,7 @@ class EIS(ColoredObject):
     def data(self) -> pd.DataFrame:
         if self.__data is None:
             self.__data = pd.concat([exp.data for exp in self.__experiments], ignore_index=True)
+            self.__data["Offset-Corrected Resistance"] = self.__data["Offset-Corrected Resistance"] + self.meanResistanceOffset
         return self.__data
     
     @property

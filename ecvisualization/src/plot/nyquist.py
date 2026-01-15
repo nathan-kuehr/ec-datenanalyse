@@ -109,7 +109,6 @@ def __nyquist_data(data: pd.DataFrame, title: str | None = None, Rmin: float = 6
 
     # See if offset correction is desired
     if offsetCorrect:
-        Rmin = 0
         config["x"] = "Offset-Corrected Resistance"
 
     # Prepare data for mean & covs
@@ -148,16 +147,7 @@ def __nyquist_multiple(data: list[EIS|pd.DataFrame], title: str | None = None, R
     if len(data) == 0:
         raise ValueError("Data list is empty.")
     
-    offsets = np.array([eis.meanResistanceOffset if isinstance(eis, EIS) else np.nan for eis in data])
-    offsets = offsets - np.nanmin(offsets)
-    offsets[np.isnan(offsets)] = 0.0
-
     combinedData = combineDataFrames(data, **kwargs)
     kwargs["hue"] = "Experiment Group"
-
-    # Apply offsets to combinedData directly
-    for offset, groupName in zip(offsets, combinedData["Experiment Group"].unique()):
-        mask = combinedData["Experiment Group"] == groupName
-        combinedData.loc[mask, "Offset-Corrected Resistance"] = combinedData.loc[mask, "Offset-Corrected Resistance"] + offset
 
     return nyquist(combinedData, title, Rmin=Rmin, Rspan=Rspan, offsetCorrect=offsetCorrect, **kwargs)
