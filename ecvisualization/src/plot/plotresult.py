@@ -1,7 +1,7 @@
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 from datetime import datetime
-from .settings import Settings
+from ..settings import Settings
 import matplotlib.pyplot as plt
 
 import os
@@ -18,6 +18,9 @@ class PlotResult:
         self.__savefigFunc = self.__figure.savefig
         self.__showfigFunc = self.__figure.show
         self.__globalShowFigFunc = plt.show
+
+    def setTitle(self, title: str|None) -> None:
+        self.__title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot")
 
     def save(self) -> None:
         if not self.__saved:
@@ -44,3 +47,4 @@ class PlotResult:
     
     def __del__(self):
         self.save()
+        plt.close(self.__figure)

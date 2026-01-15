@@ -167,6 +167,8 @@ class EIS(ColoredObject):
         "Neg. Reactance": DataSeriesInfo("-$X$", "$\\Omega$", "log")
     }
 
+    ExperimentGroupsInUse = set()
+
     def __init__(self, group: str | None = None, resetColor: bool = False) -> None:
         """Initialize a new experiment container.
         
@@ -177,10 +179,14 @@ class EIS(ColoredObject):
 
         self.__experiments: list[SingleExpEIS] = []
         self.__freqData: list[float] = []
-        self._data: pd.DataFrame | None = None
+        self.__data: pd.DataFrame | None = None
+
+        group = group or f"ExpGroup_{id(self)}"
+        if group in EIS.ExperimentGroupsInUse:
+            raise ValueError(f"Experiment group '{group}' is already in use.")
+
         self.__experimentGroup = group
-        self.__outputFolder: str | None = None
-        self._meanResistanceOffset: float | None = None
+        EIS.ExperimentGroupsInUse.add(group)
 
     def _group(self, exp: SingleExpEIS, grouping: dict[str, str|Callable[[list[str]], str]]) -> None:
         """Apply grouping labels to experiment data.
@@ -196,9 +202,6 @@ class EIS(ColoredObject):
                 exp.data[groupKey] = g(exp._nameParts)
             else:
                 raise ValueError("Grouping values must be either strings or callable functions.")
-        
-        if self.__experimentGroup is not None:
-            exp.data["Experiment Group"] = self.__experimentGroup
                 
     def load(self, folderPath: str, grouping: dict[str, str|Callable[[list[str]], str]] | None = None) -> None:
         """Load EIS experiments from a folder with optional grouping.
@@ -209,19 +212,16 @@ class EIS(ColoredObject):
         """
         if not (newExps := SingleExpEIS.loadFolder(folderPath)):
             return
-
-        if self.__outputFolder is None:
-            self.__outputFolder = folderPath
         
         grouping = grouping or {}
         
         # Set up frequency data if first addition
         self.__freqData = self.__freqData or newExps[0].data["Frequency"].tolist()
-
-        resistanceOffsets = []
         
         # Check frequency data matches - no interpolation impl. yet
         for exp in newExps:
+
+            # Check if frequency data matches
             expFreqData = exp.data["Frequency"].tolist()
             for fExp, fRef in zip(expFreqData, self.__freqData):
                 if abs(fExp - fRef) > FREQUENCY_TOLERANCE * fRef:
@@ -230,34 +230,34 @@ class EIS(ColoredObject):
                         f"exceeds tolerance: {FREQUENCY_TOLERANCE * fRef}"
                     )
                 
-            exp.data["Frequency"] = self.__freqData
             exp.data["Name"] = exp._name
+            exp.data["Frequency"] = self.__freqData
+            exp.data["Experiment Group"] = self.__experimentGroup
+            exp.data["Palette"] = self._palette
+
+            # Grouping
             self._group(exp, grouping)
+
             self.__experiments.append(exp)
-            resistanceOffsets.append(exp.resistanceOffset)
-        
-        self._meanResistanceOffset = np.mean(resistanceOffsets)
 
     def remove(self, expName: str) -> None:
         self.__experiments = [exp for exp in self.__experiments if exp._name != expName]
-        self._data = None  # Invalidate cached data
+        self.__data = None  # Invalidate cached data
     
     @property
     def data(self) -> pd.DataFrame:
-        if self._data is None:
-            self._data = pd.concat([exp.data for exp in self.__experiments], ignore_index=True)
-        return self._data
+        if self.__data is None:
+            self.__data = pd.concat([exp.data for exp in self.__experiments], ignore_index=True)
+        return self.__data
     
     @property
-    def experimentGroup(self) -> str | None:
+    def experimentGroup(self) -> str:
         return self.__experimentGroup
     
     @property
-    def outputFolder(self) -> str | None:
-        return self.__outputFolder
-    
-    @outputFolder.setter
-    def outputFolder(self, folderPath: str) -> None:
-        assert os.path.isdir(folderPath)  
-        self.__outputFolder = folderPath
+    def meanResistanceOffset(self) -> float:
+        """Get the mean resistance offset across all experiments."""
+        if not self.__experiments:
+            return 0.0
+        return np.mean([exp.resistanceOffset for exp in self.__experiments])
     
