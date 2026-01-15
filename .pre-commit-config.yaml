@@ -22,12 +22,9 @@ repos:
         language_version: python3.12
         additional_dependencies:
           [
-            beartype,
-            einops,
-            jax,
-            jaxtyping,
-            optax,
-            pytest,
-            typing_extensions,
-            wadler_lindig,
+            matplotlib,
+            pandas,
+            scipy,
+            numpy,
+            seaborn,
           ]

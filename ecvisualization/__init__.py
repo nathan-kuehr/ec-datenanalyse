@@ -19,5 +19,5 @@ __all__ = [
     "nyquist",
     "Selector",
     "NEIColorPalette",
-    "set"
+    "set",
 ]
