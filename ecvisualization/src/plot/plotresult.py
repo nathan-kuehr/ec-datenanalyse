@@ -1,15 +1,14 @@
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
 from datetime import datetime
 from ..settings import Settings
 import matplotlib.pyplot as plt
 
 import os
 
+
 class PlotResult:
-    def __init__(self, title: str|None , figure, **kwargs):
+    def __init__(self, title: str | None, figure, **kwargs):
         self.__figure = figure
-        self.__title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot") 
+        self.__title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot")
 
         self.__saved = kwargs.get("noSave", False)
         self.__settings = Settings(**kwargs)
@@ -19,7 +18,7 @@ class PlotResult:
         self.__showfigFunc = self.__figure.show
         self.__globalShowFigFunc = plt.show
 
-    def setTitle(self, title: str|None) -> None:
+    def setTitle(self, title: str | None) -> None:
         self.__title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot")
 
     def save(self) -> None:
@@ -30,9 +29,10 @@ class PlotResult:
                 self.__showfigFunc()
                 self.__globalShowFigFunc(block=True)
 
-
             for ext in self.__settings.exportFormats:
-                exportPath = os.path.join(self.__settings.outputFolder, f"{self.__title}.{ext}")
+                exportPath = os.path.join(
+                    self.__settings.outputFolder, f"{self.__title}.{ext}"
+                )
 
                 if ext == "png":
                     self.__savefigFunc(exportPath, dpi=self.__settings.dpi)
@@ -41,10 +41,10 @@ class PlotResult:
 
     def __enter__(self):
         return self.__figure, self.__figure.axes
-    
+
     def __exit__(self, excType, excVal, excTb):
         pass
-    
+
     def __del__(self):
         self.save()
         plt.close(self.__figure)
