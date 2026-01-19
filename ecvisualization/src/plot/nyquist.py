@@ -50,6 +50,7 @@ def __nyquist_data(
     config = {"x": "Resistance", "y": "Neg. Reactance"}
 
     kwargs.setdefault("errorbar", ("ci", 95))
+    kwargs.setdefault("err_style", "band")
 
     # See if offset correction is desired
     if offsetCorrect:
@@ -86,18 +87,27 @@ def __nyquist_data(
                 covVis = CovarianceVisualization(
                     group, kwargs.get("errorbar"), config["x"]
                 )
-                # covVis.draw(ax, color=color)
-                hull = covVis.hull2(ax)
-                ax.fill(
-                    hull[:, 0],
-                    hull[:, 1],
-                    color=color,
-                    alpha=0.1,
-                    label="Hüllkurve",
-                    zorder=1,
-                )
-                # ax.plot(right[:, 0], right[:, 1], color=color, linestyle="--", linewidth=1)
-                # ax.plot(left[:, 0], left[:, 1], color=color, linestyle="--", linewidth=1)
+
+                if covVis.N == 1:
+                    continue  # No covariance to plot
+
+                if kwargs.get("err_style") == "band":
+                    hull = covVis.hull(ax)
+                    ax.fill(
+                        hull[:, 0],
+                        hull[:, 1],
+                        color=color,
+                        alpha=0.1,
+                        label="Hüllkurve",
+                        zorder=1,
+                    )
+                elif kwargs.get("err_style") == "bars":
+                    covVis.draw(ax, color=color)
+                else:
+                    raise ValueError(
+                        f"Unknown err_style '{kwargs.get('err_style')}'. Supported styles are 'band' and 'bars'."
+                    )
+
                 line.set_zorder(2)  # Bring lines to front
 
     return PlotResult(title, fig, **kwargs)

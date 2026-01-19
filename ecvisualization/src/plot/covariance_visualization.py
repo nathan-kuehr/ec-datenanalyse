@@ -1,4 +1,3 @@
-from itertools import combinations
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
@@ -6,10 +5,8 @@ from matplotlib.patches import Ellipse
 from matplotlib.colors import hex2color
 from scipy.stats import chi2
 from scipy.linalg import logm, expm
-from shapely.geometry import LineString
 
 from scipy.interpolate import interp1d
-from scipy.spatial import geometric_slerp
 
 from ..config import COVVIS_ANGLE_STEPS, COVVIS_INTERPOLATION_POINTS
 
@@ -37,12 +34,73 @@ class CovarianceVisualization:
 
         self.__positions = grouped.mean().to_numpy()
 
+    @property
+    def N(self) -> int:
+        return self.__N
+
     def interpCov(self, points: np.ndarray) -> np.ndarray:
         logCovs = [logm(cov) for cov in self.__covs]
         ipLogCovs = interp1d(np.arange(self.__nF), logCovs, axis=0)(points)
         return np.array([expm(cov) for cov in ipLogCovs])
 
-    def hull2(self, ax) -> np.ndarray:
+    def cross(self, p1: np.ndarray, p2: np.ndarray) -> np.ndarray:
+        return p1[..., 0] * p2[..., 1] - p1[..., 1] * p2[..., 0]
+
+    def slerp(self, n0, n1, t):
+        alpha = np.arctan2(n0[1], n0[0])
+        angle = np.arctan2(n1[1], n1[0]) - alpha
+        if np.abs(angle + np.pi) < 1e-9:
+            angle = np.pi
+
+        theta = alpha + t * angle
+        return np.stack((np.cos(theta), np.sin(theta)), axis=1)
+
+    def findIntersections(self, hullpoints: np.ndarray) -> np.ndarray:
+        N = len(hullpoints)
+
+        # Idea:
+        # Intersection if A->B crosses C->D, that is iff
+        # A and B are on different sides of CD and
+        # C and D are on different sides of AB
+        # --> det(AB, AC) * det(AB, AD) < 0 and det(CD, CA) * det(CD, CB) < 0
+
+        # i = vec index
+        A = hullpoints[:-1, None, :]
+        B = hullpoints[1:, None, :]
+
+        # j = vec index
+        C = hullpoints[None, :-1, :]
+        D = hullpoints[None, 1:, :]
+
+        AB = B - A  # -> shape (vecs, copies, 2)
+        CD = D - C  # -> shape (copies, vecs, 2)
+
+        # is vector i splitting vector j?
+        isCDsplit = self.cross(AB, C - A) * self.cross(AB, D - A) < 0
+        # is vector j splitting vector i?
+        isABsplit = self.cross(CD, A - C) * self.cross(CD, B - C) < 0
+
+        intersecMask = isCDsplit & isABsplit
+
+        # Find all intersec indices
+        rows, cols = np.where(intersecMask)
+        farthest = np.full(N - 1, -1, dtype=int)
+        np.maximum.at(farthest, rows, cols)
+        farthest[farthest <= np.arange(N - 1)] = -1  # avoid backward intersections
+
+        # Find largest intersection for each row
+        from_ = np.arange(N - 1)[farthest > -1]
+        to_ = farthest[farthest > -1]
+
+        mask = np.zeros(N)
+        np.add.at(mask, from_ + 1, 1)
+        np.add.at(mask, to_ + 1, -1)
+
+        mask = np.cumsum(mask) == 0
+
+        return mask
+
+    def hull(self, ax) -> np.ndarray:
         alpha = np.linspace(
             0, self.__nF - 1, (self.__nF - 1) * COVVIS_INTERPOLATION_POINTS + 1
         )
@@ -51,100 +109,99 @@ class CovarianceVisualization:
         positions = interp1d(np.arange(self.__nF), self.__positions, axis=0)(alpha)
         covs = self.interpCov(alpha)
 
+        # Do the round trip for a closed hull, i.e. right -> left -> back
+        positions = np.vstack([positions, positions[-2::-1]])
+        covs = np.vstack([covs, covs[-2::-1]])
+
         # Gradients and normals
         grad = np.gradient(positions, axis=0)
+
+        # Gradient vanishes at turning point so set it 90° turned
+        turningPoint = (self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
+        prevGrad = grad[turningPoint - 1]
+        grad[turningPoint] = [-prevGrad[1], prevGrad[0]]
+
         normals = (
-            np.stack([-grad[:, 1], grad[:, 0]], axis=1)
+            np.stack([grad[:, 1], -grad[:, 0]], axis=1)
             / np.linalg.norm(grad, axis=1)[:, None]
         )
 
-        # Angular changes between normals
+        # Attribute the normals of the interpol points to the real data points
+        # -> easier angular interpol
+        realDataPoints = np.arange(2 * self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
+        normals[realDataPoints] = normals[realDataPoints - 1]
+
         normalDotProds = np.clip(
             np.einsum("ij,ij->i", normals[1:], normals[:-1]), -1, 1
         )
+        normalCrossProds = self.cross(normals[:-1], normals[1:])
 
-        # Needed steps to add for angular resolution
-        deltaChanges = np.ceil(
-            np.degrees(np.arccos(normalDotProds)) / COVVIS_ANGLE_STEPS
-        ).astype(int)
-        deltaChanges[deltaChanges < 1] = 1
+        rotdirs = np.where(normalCrossProds >= 0, 1, -1)
+        angles = np.arccos(normalDotProds)
 
-        # 2D cross products to determine rotation direction
-        normalCrossProds = (
-            normals[:-1, 0] * normals[1:, 1] - normals[:-1, 1] * normals[1:, 0]
-        )
+        # How many support vectors are at each point?
+        multiplicity = np.ceil(angles / np.radians(COVVIS_ANGLE_STEPS)).astype(int)
+        multiplicity[multiplicity < 1] = 1
+        multiplicity[multiplicity > 1] += 1  # account for endpoints in angular sweep
 
-        # Create the base directions in which to evaluate maximal extents
-        baseDirectionsLeft = []
-        baseDirectionsRight = []
-
-        for i, N in enumerate(deltaChanges):
+        # Prepapre direction vectors
+        dirvecs = []
+        for i, N in enumerate(multiplicity):
             n0 = normals[i]
 
             if N == 1:
-                baseDirectionsLeft.append(n0[None, :])
-                baseDirectionsRight.append(n0[None, :])
+                dirvecs.append(n0[None, :])
+            elif rotdirs[i] == 1:
+                dirvecs.append(self.slerp(n0, normals[i + 1], np.linspace(0, 1, N)))
             else:
-                n1 = normals[i + 1]
-                rotDir = 1 if normalCrossProds[i] < 0 else -1
+                dirvecs.append(np.repeat(n0[None, :], N, axis=0))
+        dirvecs = np.concatenate(dirvecs, axis=0)
 
-                slerped = geometric_slerp(n0, n1, np.linspace(0, 1, N, endpoint=False))
-                baseDirectionsLeft.append(slerped[::rotDir])
-                baseDirectionsRight.append(slerped[::-rotDir])
+        # Prepare base positions and covariances
+        basepos = np.repeat(positions[:-1], multiplicity, axis=0)
+        basecovs = np.repeat(covs[:-1], multiplicity, axis=0)
 
-        baseDirectionsLeft.append(normals[-1][None, :])
-        baseDirectionsLeft = np.concatenate(baseDirectionsLeft, axis=0)
+        # Calculate hull points
+        sigman = np.einsum("ijk,ik->ij", basecovs, dirvecs)
+        scale = np.sqrt(np.einsum("ij,ij->i", dirvecs, sigman))[:, None]
+        hullPoints = basepos + sigman / scale
 
-        baseDirectionsRight.append(normals[-1][None, :])
-        baseDirectionsRight = -np.concatenate(baseDirectionsRight, axis=0)
-
-        deltaChanges = np.append(deltaChanges, 1)  # For last point
-
-        # Prepare base points and covariances
-        basePositions = np.repeat(positions, deltaChanges, axis=0)
-        baseCovs = np.repeat(covs, deltaChanges, axis=0)
-
-        # Push angular steps to real data points
-        baseIsMultiplied = np.repeat(deltaChanges > 1, deltaChanges, axis=0)
-        baseIsRealData = np.repeat(
-            np.arange(len(positions)) % COVVIS_INTERPOLATION_POINTS == 0,
-            deltaChanges,
-            axis=0,
-        )
-        baseNextRDPos = np.repeat(
-            np.ceil(np.arange(len(positions)) / COVVIS_INTERPOLATION_POINTS),
-            deltaChanges,
-            axis=0,
-        ).astype(int)
-
-        mask = baseIsMultiplied & ~baseIsRealData
-        basePositions[mask] = self.__positions[baseNextRDPos[mask]]
-        baseCovs[mask] = self.__covs[baseNextRDPos[mask]]
-
-        sigmanLeft = np.einsum("ijk,ik->ij", baseCovs, baseDirectionsLeft)
-        scaleLeft = np.sqrt(np.einsum("ij,ij->i", baseDirectionsLeft, sigmanLeft))[
-            :, None
-        ]
-        sigmanRight = np.einsum("ijk,ik->ij", baseCovs, baseDirectionsRight)
-        scaleRight = np.sqrt(np.einsum("ij,ij->i", baseDirectionsRight, sigmanRight))[
-            :, None
-        ]
-
-        leftHull = basePositions + sigmanLeft / scaleLeft
-        rightHull = basePositions + sigmanRight / scaleRight
-
-        # Remove loops
-        def cleanLoops(hull):
-            mask = np.ones(len(hull), dtype=bool)
-            vecs = [
-                LineString([hull[i, :], hull[i + 1, :]]) for i in range(len(hull) - 1)
+        # Remove intersections
+        turningPoint = np.sum(multiplicity[:turningPoint])
+        mask = np.concatenate(
+            [
+                self.findIntersections(hullPoints[:turningPoint]),
+                self.findIntersections(hullPoints[turningPoint:]),
             ]
-            for (i, vecA), (j, vecB) in combinations(enumerate(vecs), 2):
-                if vecA.intersects(vecB) and i != j - 1:
-                    mask[i + 1 : j + 1] = False
-            return hull[mask]
+        )
 
-        return np.vstack([cleanLoops(leftHull), cleanLoops(rightHull)[::-1]])
+        # ax.plot(hullPoints[:, 0], hullPoints[:, 1], color="k", linewidth=1, marker='o', markersize=1)
+        # ax.quiver(
+        #     basepos[:, 0],
+        #     basepos[:, 1],
+        #     dirvecs[:, 0],
+        #     dirvecs[:, 1],
+        #     angles="xy",
+        #     scale_units="xy",
+        #     scale=10,
+        #     width=0.002,
+        #     color="k",
+        #     alpha=1,
+        # )
+        # ax.quiver(
+        #     basepos[:, 0],
+        #     basepos[:, 1],
+        #     (sigman / scale)[:, 0],
+        #     (sigman / scale)[:, 1],
+        #     angles="xy",
+        #     scale_units="xy",
+        #     scale=1,
+        #     width=0.002,
+        #     color="b",
+        #     alpha=0.3,
+        # )
+
+        return hullPoints[mask]
 
     @property
     def ellipseParameters(self) -> np.ndarray:
