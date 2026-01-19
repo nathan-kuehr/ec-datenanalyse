@@ -26,7 +26,7 @@ class CovarianceVisualization:
         self.__freqs = np.array(list(grouped.groups.keys()))
 
         if self.__N == 1:
-            self.__covs = np.zeros((self.__nF, 2, 2))
+            self.__covs = np.ones((self.__nF, 2, 2)) * np.nan
         else:
             self.__covs = (
                 (grouped.cov() / self.__N).to_numpy().reshape((self.__nF, 2, 2))  # pyright: ignore
@@ -38,16 +38,9 @@ class CovarianceVisualization:
         self.__positions = grouped.mean().to_numpy()
 
     def interpCov(self, points: np.ndarray) -> np.ndarray:
-        ipCovs = []
-        for p in points:
-            if int(p) == p:
-                ipCovs.append(self.__covs[int(p), :, :])
-            else:
-                sigma1 = logm(self.__covs[int(np.floor(p)), :, :])
-                sigma2 = logm(self.__covs[int(np.ceil(p)), :, :])
-                t = p - np.floor(p)
-                ipCovs.append(expm(sigma1 + t * (sigma2 - sigma1)))  # pyright: ignore
-        return np.array(ipCovs)
+        logCovs = [logm(cov) for cov in self.__covs]
+        ipLogCovs = interp1d(np.arange(self.__nF), logCovs, axis=0)(points)
+        return np.array([expm(cov) for cov in ipLogCovs])
 
     def hull2(self, ax) -> np.ndarray:
         alpha = np.linspace(
