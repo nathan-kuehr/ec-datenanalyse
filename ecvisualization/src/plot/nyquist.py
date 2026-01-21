@@ -1,113 +1,12 @@
 import numpy as np
 import pandas as pd
 from functools import singledispatch
-
-from scipy.stats import chi2
 from scipy.linalg import logm, expm
-
-from matplotlib.patches import Ellipse
-from matplotlib.axes import Axes
 
 from .plotresult import PlotResult
 from .plot import plot, combineDataFrames
 from ..eis import EIS
-
-from matplotlib.colors import hex2color
-
-
-class CovarianceVisualization:
-    @classmethod
-    def calculate(
-        cls,
-        data: pd.DataFrame,
-        real: str = "Offset-Corrected Resistance",
-        imag: str = "Neg. Reactance",
-    ):
-        nF = int(data["Frequency"].nunique())
-        N = int(data["Name"].nunique())
-
-        grouped = data.groupby("Frequency")[[real, imag]]
-
-        f = np.array(list(grouped.groups.keys()))
-
-        if N == 1:
-            covs = np.zeros((nF, 4))
-        else:
-            covs = (grouped.cov() / N).to_numpy().reshape((nF, 4))  # pyright: ignore
-
-        pos = grouped.mean().to_numpy()
-
-        return np.column_stack((f[:, None], pos, covs))
-
-    @classmethod
-    def ellipseParameters(
-        cls, covData: np.ndarray, ci: float = 0.95
-    ) -> tuple[np.ndarray, np.ndarray]:
-        chi2Val = chi2.ppf(ci, df=2)
-
-        positions = []
-        ellipses = []
-        for row in covData:
-            freq = row[0]
-            pos = row[1:3]
-            cov = row[3:].reshape(2, 2)
-            eigvals, eigvecs = np.linalg.eigh(cov)
-            axes = np.sqrt(eigvals * chi2Val)
-            angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
-            ellipses.append((freq, axes[0], axes[1], angle))
-            positions.append(pos)
-
-        return np.array(positions), np.array(ellipses)
-
-    @classmethod
-    def draw(
-        cls,
-        data: pd.DataFrame,
-        ax: Axes,
-        real: str,
-        imag: str,
-        errorbar,
-        color="#808080",
-    ) -> None:
-        if isinstance(errorbar, tuple) and errorbar[0] == "ci":
-            ci = errorbar[1] / 100
-        elif isinstance(errorbar, float):
-            ci = errorbar / 100
-        elif errorbar == "ci":
-            ci = 0.95
-        else:
-            raise ValueError(
-                "Unsupported errorbar specification for covariance visualization"
-            )
-
-        covData = CovarianceVisualization.calculate(data, real=real, imag=imag)
-        positions, ellipses = CovarianceVisualization.ellipseParameters(covData, ci=ci)
-
-        color = list(hex2color(color))
-        edgeColor = color + [0.5]
-        faceColor = color + [0.2]
-
-        for pos, (freq, a, b, angle) in zip(positions, ellipses):
-            # Find the center point (mean) for this frequency
-            freq_data = data[data["Frequency"] == freq]
-            if len(freq_data) > 0:
-                cx = pos[0]
-                cy = pos[1]
-                ax.add_patch(
-                    Ellipse(
-                        (cx, cy),
-                        width=2 * a,
-                        height=2 * b,
-                        angle=angle,
-                        edgecolor=edgeColor,
-                        facecolor=faceColor,
-                        linestyle="-.",
-                    )
-                )
-
-    @classmethod
-    def interpolate(cls, sigma):
-        pass
+from .covariance_visualization import CovarianceVisualization
 
 
 def covInterpolation(sigma1: np.ndarray, sigma2: np.ndarray, t: float) -> np.ndarray:
@@ -151,6 +50,7 @@ def __nyquist_data(
     config = {"x": "Resistance", "y": "Neg. Reactance"}
 
     kwargs.setdefault("errorbar", ("ci", 95))
+    kwargs.setdefault("err_style", "band")
 
     # See if offset correction is desired
     if offsetCorrect:
@@ -184,14 +84,30 @@ def __nyquist_data(
             grouped = data.groupby(hueGroup)
             for (_, group), line in zip(data.groupby(hueGroup), ax.lines):
                 color = line.get_color()
-                CovarianceVisualization.draw(
-                    group,
-                    ax,
-                    real=config["x"],
-                    imag=config["y"],
-                    errorbar=kwargs.get("errorbar"),
-                    color=color,
+                covVis = CovarianceVisualization(
+                    group, kwargs.get("errorbar"), config["x"]
                 )
+
+                if covVis.N == 1:
+                    continue  # No covariance to plot
+
+                if kwargs.get("err_style") == "band":
+                    hull = covVis.hull(ax)
+                    ax.fill(
+                        hull[:, 0],
+                        hull[:, 1],
+                        color=color,
+                        alpha=0.1,
+                        label="Hüllkurve",
+                        zorder=1,
+                    )
+                elif kwargs.get("err_style") == "bars":
+                    covVis.draw(ax, color=color)
+                else:
+                    raise ValueError(
+                        f"Unknown err_style '{kwargs.get('err_style')}'. Supported styles are 'band' and 'bars'."
+                    )
+
                 line.set_zorder(2)  # Bring lines to front
 
     return PlotResult(title, fig, **kwargs)

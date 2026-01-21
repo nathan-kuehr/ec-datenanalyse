@@ -1,6 +1,8 @@
 **/.DS_Store
 
 vis/
+testout/
+test.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
