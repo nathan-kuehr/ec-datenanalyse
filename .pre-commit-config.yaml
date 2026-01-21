@@ -27,5 +27,4 @@ repos:
             scipy,
             numpy,
             seaborn,
-            shapely,
           ]
