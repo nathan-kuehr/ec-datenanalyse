@@ -4,7 +4,7 @@ from matplotlib.colors import hex2color, rgb2hex
 
 class NEIColorPalette:
     Colors = np.array(
-        ["#197643", "#1159A6", "#FF8000", "#74035C", "#DE173C", "#27C1CF"]
+        ["#FF8000", "#DE173C", "#74035C", "#1159A6", "#27C1CF", "#197643"]
     )
 
     # Mapping from main colors to their shades
