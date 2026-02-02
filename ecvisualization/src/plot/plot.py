@@ -74,7 +74,7 @@ def __plot_single_eis_data(
 
         cleanedKwargs = Settings.cleanKwargs(kwargs, otherKeysToRemove={"noSave"})
 
-        sns.lineplot(**config, **cleanedKwargs)
+        sns.lineplot(**config, **cleanedKwargs, sort=False)
 
         ax.set_xlabel(f"{x} {EIS.SeriesInfo[x].symbol} [{EIS.SeriesInfo[x].unit}]")
         ax.set_ylabel(f"{y} {EIS.SeriesInfo[y].symbol} [{EIS.SeriesInfo[y].unit}]")
