@@ -1,4 +1,7 @@
 import os
+from copy import deepcopy
+
+from .eis import EIS
 
 
 class Settings:
@@ -67,12 +70,14 @@ class Settings:
 # Create a global default settings instance
 # ================================================================================
 
-GlobalDefaultSettings = Settings.__new__(Settings)
+StaticGlobalDefaultSettings = Settings.__new__(Settings)
 
-GlobalDefaultSettings._outputFolder = "./vis"
-GlobalDefaultSettings._exportFormats = {"svg", "pdf"}
-GlobalDefaultSettings.dpi = 300
-GlobalDefaultSettings.showOnSave = True
+StaticGlobalDefaultSettings._outputFolder = "./vis"
+StaticGlobalDefaultSettings._exportFormats = {"svg", "pdf"}
+StaticGlobalDefaultSettings.dpi = 300
+StaticGlobalDefaultSettings.showOnSave = True
+
+GlobalDefaultSettings = deepcopy(StaticGlobalDefaultSettings)
 
 # ================================================================================
 
@@ -89,3 +94,23 @@ def _set(**kwargs) -> None:
 
     if "showOnSave" in kwargs:
         GlobalDefaultSettings.showOnSave = kwargs["showOnSave"]
+
+
+def _reset(args: set) -> None:
+    if not isinstance(args, set):
+        args = {args}
+
+    if "outputFolder" in args:
+        GlobalDefaultSettings.outputFolder = StaticGlobalDefaultSettings.outputFolder
+
+    if "exportFormats" in args:
+        GlobalDefaultSettings.exportFormats = StaticGlobalDefaultSettings.exportFormats
+
+    if "dpi" in args:
+        GlobalDefaultSettings.dpi = StaticGlobalDefaultSettings.dpi
+
+    if "showOnSave" in args:
+        GlobalDefaultSettings.showOnSave = StaticGlobalDefaultSettings.showOnSave
+
+    if EIS in args:
+        EIS.resetTrackedObjects()

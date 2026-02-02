@@ -189,6 +189,11 @@ class EIS(ColoredObject):
 
     ExperimentGroupsInUse = set()
 
+    @classmethod
+    def resetTrackedObjects(cls) -> None:
+        super().resetColor()
+        cls.ExperimentGroupsInUse = set()
+
     def __init__(self, group: str | None = None, resetColor: bool = False) -> None:
         """Initialize a new experiment container.
 

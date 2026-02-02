@@ -10,6 +10,7 @@ from .src.plot.nyquist import nyquist
 from .src.utils import FileNameGroupSelector as Selector
 from .src.palette import NEIColorPalette
 from .src.settings import _set as set
+from .src.settings import _reset as reset
 
 __all__ = [
     "EIS",
@@ -20,4 +21,5 @@ __all__ = [
     "Selector",
     "NEIColorPalette",
     "set",
+    "reset",
 ]
