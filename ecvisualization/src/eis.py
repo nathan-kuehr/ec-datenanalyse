@@ -136,7 +136,7 @@ class SingleExpEIS(ABC):
         with np.errstate(divide="ignore"):
             omega = 2 * np.pi * df["Frequency"]
             df["Capacitance"] = np.abs(1 / (omega * df["Neg. Reactance"]))
-            self._resistanceOffset = float(df["Resistance"].min())
+            self._resistanceOffset = float(df["Resistance"].min())  # type: ignore
             df["Offset-Corrected Resistance"] = (
                 df["Resistance"] - self._resistanceOffset
             )
@@ -208,7 +208,9 @@ class EIS(ColoredObject):
         self.__experimentGroup = group
         EIS.ExperimentGroupsInUse.add(group)
 
-    def _group(
+        self.__offsetShift = 0.0
+
+    def __group(
         self, exp: SingleExpEIS, grouping: dict[str, str | Callable[[list[str]], str]]
     ) -> None:
         """Apply grouping labels to experiment data.
@@ -263,7 +265,7 @@ class EIS(ColoredObject):
             exp.data["Palette"] = self._palette
 
             # Grouping
-            self._group(exp, grouping)
+            self.__group(exp, grouping)
 
             self.__experiments.append(exp)
 
@@ -287,8 +289,18 @@ class EIS(ColoredObject):
         return self.__experimentGroup
 
     @property
-    def meanResistanceOffset(self) -> float:
+    def __meanResistanceOffset(self) -> float:
         """Get the mean resistance offset across all experiments."""
         if not self.__experiments:
             return 0.0
         return float(np.mean([exp.resistanceOffset for exp in self.__experiments]))
+
+    @property
+    def meanResistanceOffset(self) -> float:
+        """Get the mean resistance offset across all experiments."""
+        return self.__meanResistanceOffset + self.__offsetShift
+
+    @meanResistanceOffset.setter
+    def meanResistanceOffset(self, newMeanResistance) -> None:
+        self.__offsetShift = newMeanResistance - self.__meanResistanceOffset
+        self.__data = None
