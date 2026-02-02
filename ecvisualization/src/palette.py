@@ -92,12 +92,13 @@ class ColoredObject:
         cls.ColorPaletteIndex = 0
 
     @classmethod
-    def nextColor(cls) -> NEIColorPalette:
-        color = NEIColorPalette(cls.ColorPaletteIndex)
+    def nextColor(cls, shadeable: bool) -> NEIColorPalette:
+        while not (color := NEIColorPalette(cls.ColorPaletteIndex)).shadeable:
+            cls.ColorPaletteIndex += 1
         cls.ColorPaletteIndex += 1
         return color
 
-    def __init__(self, resetColor: bool = False) -> None:
+    def __init__(self, resetColor: bool = False, shadeable: bool = True) -> None:
         """Initialize a new colored object.
 
         Args:
@@ -106,7 +107,7 @@ class ColoredObject:
         if resetColor:
             self.resetColor()
 
-        self._palette = self.nextColor()
+        self._palette = self.nextColor(shadeable)
 
     @property
     def palette(self) -> NEIColorPalette:
