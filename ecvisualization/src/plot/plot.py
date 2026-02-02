@@ -145,7 +145,7 @@ def __bode_data(data: pd.DataFrame, title: str | None = None, **kwargs) -> PlotR
         )
         pr = plot(data, x="Frequency", ax=ax[1], y="Phase", title="Phase", **kwargs)
 
-        pr.setTitle(title)
+        pr.title(title)
     return pr
 
 
