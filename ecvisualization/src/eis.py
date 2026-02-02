@@ -80,6 +80,7 @@ class SingleExpEIS(ABC):
         self._resistanceOffset = 0
         self._sampleNumber, self._nameParts = parsedFileName
         self._name = "_".join(self._nameParts)
+        self._filename = os.path.splitext(os.path.basename(filePath))[0]
 
     @property
     @abstractmethod
@@ -274,8 +275,15 @@ class EIS(ColoredObject):
 
             self.__experiments.append(exp)
 
-    def remove(self, expName: str) -> None:
-        self.__experiments = [exp for exp in self.__experiments if exp._name != expName]
+    def remove(self, toRemove: str | set[str]) -> None:
+        if isinstance(toRemove, str):
+            toRemove = {toRemove}
+
+        self.__experiments = [
+            exp
+            for exp in self.__experiments
+            if (exp._name not in toRemove and exp._filename not in toRemove)
+        ]
         self.__data = None  # Invalidate cached data
 
     @property
