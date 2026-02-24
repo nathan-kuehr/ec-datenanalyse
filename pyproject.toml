@@ -1,0 +1,26 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0"]
+
+[project]
+authors = [
+  {email = "github@kuehrconnect.de", name = "Nathan Kühr"}
+]
+dependencies = [
+  "numpy",
+  "pandas",
+  "scipy",
+  "matplotlib",
+  "seaborn",
+  "opencv-python",
+  "scikit-image"
+]
+description = "Projekt, dass die Analysefunktionen bereitstellt, welche ich im Rahmen meiner Masterarbeit am FZJ nutze."
+name = "lab-analytics"
+readme = "README.md"
+requires-python = ">=3.8"
+version = "0.1.0"
+
+[tool.setuptools.packages.find]
+include = ["afmmetrics*", "ecanalytics*"]
+where = ["."] # Suche im aktuellen Verzeichnis

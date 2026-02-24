@@ -27,4 +27,5 @@ repos:
             scipy,
             numpy,
             seaborn,
+            scikit-image
           ]
