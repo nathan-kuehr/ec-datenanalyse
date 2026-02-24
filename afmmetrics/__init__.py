@@ -1,7 +1,5 @@
 # Data Classes
-from .src.afm import AFMImage
+from .src.afm import AFMImage, MicrogelImage
 
 
-__all__ = [
-    "AFMImage",
-]
+__all__ = ["AFMImage", "MicrogelImage"]

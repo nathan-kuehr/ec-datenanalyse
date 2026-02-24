@@ -15,8 +15,8 @@ class CovarianceVisualization:
     def __init__(
         self, data: pd.DataFrame, errorbar, real: str = "Offset-Corrected Resistance"
     ) -> None:
-        self.__nF = int(data["Frequency"].nunique())
-        self.__N = int(data["Name"].nunique())
+        self.__nF = int(data["Frequency"].nunique())  # pyright: ignore
+        self.__N = int(data["Name"].nunique())  # pyright: ignore
 
         grouped = data.groupby("Frequency")[[real, "Neg. Reactance"]]
 
@@ -32,7 +32,7 @@ class CovarianceVisualization:
             # Scale covariances to desired confidence interval, such that they represent the CI ellipse
             self.__covs *= chi2.ppf(self.ciFromErrorbarSpec(errorbar), df=2)
 
-        self.__positions = grouped.mean().to_numpy()
+        self.__positions = grouped.mean().to_numpy()  # pyright: ignore
 
     @property
     def N(self) -> int:
@@ -231,7 +231,7 @@ class CovarianceVisualization:
         edgeColor = color + [0.5]
         faceColor = color + [0.2]
 
-        for pos, (a, b, angle) in zip(self.__positions, self.ellipseParameters):
+        for pos, (a, b, angle) in zip(self.__positions, self.ellipseParameters):  # pyright: ignore
             ax.add_patch(
                 Ellipse(
                     tuple(pos),

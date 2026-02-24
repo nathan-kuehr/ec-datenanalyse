@@ -15,7 +15,7 @@ dependencies = [
   "matplotlib",
   "seaborn",
   "opencv-python",
-  "cv2"
+  "scikit-image"
 ]
 description = "A Python package for EC data visualization."
 name = "ecvisualization"
