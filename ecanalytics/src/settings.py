@@ -6,23 +6,25 @@ from .eis import EIS
 
 class Settings:
     def __init__(self, **kwargs):
-        self.outputFolder = kwargs.get(
-            "outputFolder", GlobalDefaultSettings.outputFolder
+        self.output_folder = kwargs.get(
+            "outputFolder", Global_Default_Settings.output_folder
         )
-        self.exportFormats = kwargs.get(
-            "exportFormats", GlobalDefaultSettings.exportFormats
+        self.export_formats = kwargs.get(
+            "exportFormats", Global_Default_Settings.export_formats
         )
 
-        self.dpi = kwargs.get("dpi", GlobalDefaultSettings.dpi)
-        self.showOnSave = kwargs.get("showOnSave", GlobalDefaultSettings.showOnSave)
+        self.dpi = kwargs.get("dpi", Global_Default_Settings.dpi)
+        self.show_on_save = kwargs.get(
+            "showOnSave", Global_Default_Settings.show_on_save
+        )
 
     @property
-    def outputFolder(self) -> str:
+    def output_folder(self) -> str:
         """Folder path for exported plots."""
-        return self._outputFolder
+        return self._output_folder
 
-    @outputFolder.setter
-    def outputFolder(self, folderPath: str) -> None:
+    @output_folder.setter
+    def output_folder(self, folderPath: str) -> None:
         """Sets the global output folder for exports.
 
         Args:
@@ -31,24 +33,24 @@ class Settings:
         if not os.path.isdir(folderPath):
             os.makedirs(folderPath, exist_ok=True)
 
-        self._outputFolder = folderPath
+        self._output_folder = folderPath
 
     @property
-    def exportFormats(self) -> set[str]:
+    def export_formats(self) -> set[str]:
         """Set of file extensions for export formats."""
-        return self._exportFormats
+        return self._export_formats
 
-    @exportFormats.setter
-    def exportFormats(self, formats: set[str]) -> None:
+    @export_formats.setter
+    def export_formats(self, formats: set[str]) -> None:
         """Sets the default export formats.
 
         Args:
             formats: Set of file extensions (e.g., {"svg", "pdf"})
         """
-        self._exportFormats = formats & {"svg", "pdf", "png", "jpg"}
+        self._export_formats = formats & {"svg", "pdf", "png", "jpg"}
 
     @classmethod
-    def cleanKwargs(cls, kwargs: dict, otherKeysToRemove: set[str] = set()) -> dict:
+    def Clean_Kwargs(cls, kwargs: dict, other_keys_to_remove: set[str] = set()) -> dict:
         """Cleans the kwargs dictionary by removing settings related keys.
 
         Args:
@@ -57,60 +59,66 @@ class Settings:
         Returns:
             Cleaned kwargs dictionary
         """
-        keysToRemove = {
+        keys_to_remove = {
             "outputFolder",
             "exportFormats",
             "dpi",
             "showOnSave",
-        } | otherKeysToRemove
-        return {k: v for k, v in kwargs.items() if k not in keysToRemove}
+        } | other_keys_to_remove
+        return {k: v for k, v in kwargs.items() if k not in keys_to_remove}
 
 
 # ================================================================================
 # Create a global default settings instance
 # ================================================================================
 
-StaticGlobalDefaultSettings = Settings.__new__(Settings)
+Static_Global_Default_Settings = Settings.__new__(Settings)
 
-StaticGlobalDefaultSettings._outputFolder = "./vis"
-StaticGlobalDefaultSettings._exportFormats = {"svg", "pdf"}
-StaticGlobalDefaultSettings.dpi = 300
-StaticGlobalDefaultSettings.showOnSave = True
+Static_Global_Default_Settings._output_folder = "./vis"
+Static_Global_Default_Settings._export_formats = {"svg", "pdf"}
+Static_Global_Default_Settings.dpi = 300
+Static_Global_Default_Settings.show_on_save = True
 
-GlobalDefaultSettings = deepcopy(StaticGlobalDefaultSettings)
+Global_Default_Settings = deepcopy(Static_Global_Default_Settings)
 
 # ================================================================================
 
 
 def _set(**kwargs) -> None:
-    if "outputFolder" in kwargs:
-        GlobalDefaultSettings.outputFolder = kwargs["outputFolder"]
+    if "output_folder" in kwargs:
+        Global_Default_Settings.output_folder = kwargs["output_folder"]
 
-    if "exportFormats" in kwargs:
-        GlobalDefaultSettings.exportFormats = kwargs["exportFormats"]
+    if "export_formats" in kwargs:
+        Global_Default_Settings.export_formats = kwargs["export_formats"]
 
     if "dpi" in kwargs:
-        GlobalDefaultSettings.dpi = kwargs["dpi"]
+        Global_Default_Settings.dpi = kwargs["dpi"]
 
-    if "showOnSave" in kwargs:
-        GlobalDefaultSettings.showOnSave = kwargs["showOnSave"]
+    if "show_on_save" in kwargs:
+        Global_Default_Settings.show_on_save = kwargs["show_on_save"]
 
 
 def _reset(args: set) -> None:
     if not isinstance(args, set):
         args = {args}
 
-    if "outputFolder" in args:
-        GlobalDefaultSettings.outputFolder = StaticGlobalDefaultSettings.outputFolder
+    if "output_folder" in args:
+        Global_Default_Settings.output_folder = (
+            Static_Global_Default_Settings.output_folder
+        )
 
-    if "exportFormats" in args:
-        GlobalDefaultSettings.exportFormats = StaticGlobalDefaultSettings.exportFormats
+    if "export_formats" in args:
+        Global_Default_Settings.export_formats = (
+            Static_Global_Default_Settings.export_formats
+        )
 
     if "dpi" in args:
-        GlobalDefaultSettings.dpi = StaticGlobalDefaultSettings.dpi
+        Global_Default_Settings.dpi = Static_Global_Default_Settings.dpi
 
-    if "showOnSave" in args:
-        GlobalDefaultSettings.showOnSave = StaticGlobalDefaultSettings.showOnSave
+    if "show_on_save" in args:
+        Global_Default_Settings.show_on_save = (
+            Static_Global_Default_Settings.show_on_save
+        )
 
     if EIS in args:
-        EIS.resetTrackedObjects()
+        EIS.Reset_Tracked_Objects()

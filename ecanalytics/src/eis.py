@@ -16,7 +16,7 @@ from .config import FREQUENCY_TOLERANCE
 
 
 class SingleExpEIS(ABC):
-    RequiredDataSeries = {
+    Required_Data_Series = {
         "Frequency",
         "Impedance",
         "Resistance",
@@ -25,7 +25,7 @@ class SingleExpEIS(ABC):
     }
 
     @classmethod
-    def load(cls, filePath: str) -> "SingleExpEIS":
+    def load(cls, file_path: str) -> "SingleExpEIS":
         """
         Factory function. Opens and parses the impedance spectrum file, returning an
         instance of the appropriate subclass.
@@ -35,52 +35,52 @@ class SingleExpEIS(ABC):
         """
         from .specializations import SingleExpEISBioLogic, SingleExpEISPalmSens
 
-        if not Import.isAllowedFile(filePath):
-            raise FileNotFoundError(f"Unsupported/Nonexistent file: {filePath}")
+        if not Import.Is_Allowed_File(file_path):
+            raise FileNotFoundError(f"Unsupported/Nonexistent file: {file_path}")
 
         # Prepare to guess device type
-        deviceGuess: dict = defaultdict(int)
+        device_guess: dict = defaultdict(int)
 
         try:
-            with open(filePath, "r", encoding="utf-16") as file:
+            with open(file_path, "r", encoding="utf-16") as file:
                 content = file.read()
-                deviceGuess[SingleExpEISPalmSens] += 1
+                device_guess[SingleExpEISPalmSens] += 1
         except UnicodeDecodeError:
-            with open(filePath, "r", encoding="utf-8", errors="ignore") as file:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
                 content = file.read()
-                deviceGuess[SingleExpEISBioLogic] += 1
+                device_guess[SingleExpEISBioLogic] += 1
 
         if "Impedance Spectroscopy" not in content:
             raise ValueError(
-                f"File '{filePath}' does not contain Impedance Spectroscopy data."
+                f"File '{file_path}' does not contain Impedance Spectroscopy data."
             )
 
-        deviceGuess[
+        device_guess[
             SingleExpEISBioLogic
             if content.startswith("EC-Lab ASCII FILE")
             else SingleExpEISPalmSens
         ] += 1
 
-        guessedDevice = max(deviceGuess, key=lambda k: deviceGuess[k])
+        guessed_device = max(device_guess, key=lambda k: device_guess[k])
 
-        return guessedDevice(filePath, content)
+        return guessed_device(file_path, content)
 
-    def __init__(self, filePath: str, content: str) -> None:
+    def __init__(self, file_path: str, content: str) -> None:
         self._content = content
-        self._splitContent = [
+        self._split_content = [
             line.rstrip(self._delimiter) for line in content.splitlines()
         ]
         self._data: pd.DataFrame | None = None
 
-        if (parsedFileName := Import.parseFileName(filePath)) is None:
+        if (parsed_file_name := Import.Parse_File_Name(file_path)) is None:
             raise ValueError(
-                f"File name '{os.path.basename(filePath)}' does not follow the required naming convention."
+                f"File name '{os.path.basename(file_path)}' does not follow the required naming convention."
             )
 
-        self._resistanceOffset = 0
-        self._sampleNumber, self._nameParts = parsedFileName
-        self._name = "_".join(self._nameParts)
-        self._filename = os.path.splitext(os.path.basename(filePath))[0]
+        self._resistance_offset = 0
+        self._sample_number, self._name_parts = parsed_file_name
+        self._name = "_".join(self._name_parts)
+        self._filename = os.path.splitext(os.path.basename(file_path))[0]
 
     @property
     @abstractmethod
@@ -94,52 +94,58 @@ class SingleExpEIS(ABC):
 
     @property
     @abstractmethod
-    def _seriesNaming(self) -> dict[str, str]:
+    def _series_naming(self) -> dict[str, str]:
         pass
 
     @property
     @abstractmethod
-    def _negativePhase(self) -> bool:
+    def _negative_phase(self) -> bool:
         pass
 
-    def _extractDataField(self) -> str:
-        columnCounts = [len(line.split(self._delimiter)) for line in self._splitContent]
-        maxColumns = max(columnCounts)
+    def _extract_data_field(self) -> str:
+        column_counts = [
+            len(line.split(self._delimiter)) for line in self._split_content
+        ]
+        max_columns = max(column_counts)
 
         for match, group in groupby(
-            enumerate(columnCounts), lambda x: x[1] == maxColumns
+            enumerate(column_counts), lambda x: x[1] == max_columns
         ):
             if match:
-                groupList = list(group)
-                dataLines = self._splitContent[groupList[0][0] : groupList[-1][0] + 1]
-                return "\n".join(dataLines)
+                group_list = list(group)
+                data_lines = self._split_content[
+                    group_list[0][0] : group_list[-1][0] + 1
+                ]
+                return "\n".join(data_lines)
 
         raise ValueError("No consistent data field found in file.")
 
-    def _loadData(self) -> None:
+    def _load_data(self) -> None:
         """Load and parse the data from the file content."""
-        data = self._extractDataField()
+        data = self._extract_data_field()
 
         df = pd.read_csv(io.StringIO(data), sep=self._delimiter, decimal=self._decimal)
 
-        df.rename(columns=self._seriesNaming, inplace=True)
-        df = df[list(self.RequiredDataSeries)]
+        df.rename(columns=self._series_naming, inplace=True)
+        df = df[list(self.Required_Data_Series)]
 
-        if df.shape[1] != len(self.RequiredDataSeries):
-            missingColumns = self.RequiredDataSeries - set(df.columns)
-            raise ValueError(f"Dataframe is missing required columns: {missingColumns}")
+        if df.shape[1] != len(self.Required_Data_Series):
+            missing_columns = self.Required_Data_Series - set(df.columns)
+            raise ValueError(
+                f"Dataframe is missing required columns: {missing_columns}"
+            )
 
         # Adjust phase sign if necessary
-        if self._negativePhase:
+        if self._negative_phase:
             df["Phase"] = -df["Phase"]
 
         # Calculate total capacitance
         with np.errstate(divide="ignore"):
             omega = 2 * np.pi * df["Frequency"]
             df["Capacitance"] = np.abs(1 / (omega * df["Neg. Reactance"]))
-            self._resistanceOffset = float(df["Resistance"].min())  # type: ignore
+            self._resistance_offset = float(df["Resistance"].min())  # type: ignore
             df["Offset-Corrected Resistance"] = (
-                df["Resistance"] - self._resistanceOffset
+                df["Resistance"] - self._resistance_offset
             )
 
         self._data = pd.DataFrame(df)
@@ -148,26 +154,26 @@ class SingleExpEIS(ABC):
     def data(self) -> pd.DataFrame:
         """Lazy-load the dataframe on first access."""
         if self._data is None:
-            self._loadData()
+            self._load_data()
             if self._data is None:
                 raise ValueError("Data could not be loaded.")
         return self._data
 
     @property
-    def resistanceOffset(self) -> float:
+    def resistance_offset(self) -> float:
         """Get the resistance offset value."""
         if self._data is None:
-            self._loadData()
-        return self._resistanceOffset
+            self._load_data()
+        return self._resistance_offset
 
     @classmethod
-    def loadFolder(cls, folderPath: str) -> list["SingleExpEIS"]:
+    def load_folder(cls, folderPath: str) -> list["SingleExpEIS"]:
         """Load all EIS files from a folder.
 
         Args:
             folderPath: Path to folder containing EIS files
         """
-        files = Import.filesFromFolder(folderPath)
+        files = Import.Files_From_Folder(folderPath)
         return [cls.load(filePath) for filePath in files]
 
 
@@ -178,7 +184,7 @@ class DataSeriesInfo(NamedTuple):
 
 
 class EIS(ColoredObject):
-    SeriesInfo = {
+    Series_Info = {
         "Frequency": DataSeriesInfo("$F$", "Hz", "log"),
         "Impedance": DataSeriesInfo("$Z$", "$\\Omega$", "log"),
         "Capacitance": DataSeriesInfo("$C$", "F", "log"),
@@ -188,33 +194,33 @@ class EIS(ColoredObject):
         "Neg. Reactance": DataSeriesInfo("-$X$", "$\\Omega$", "log"),
     }
 
-    ExperimentGroupsInUse = set()
+    Experiment_Groups_In_Use = set()
 
     @classmethod
-    def resetTrackedObjects(cls) -> None:
-        super().resetColor()
-        cls.ExperimentGroupsInUse = set()
+    def Reset_Tracked_Objects(cls) -> None:
+        super().reset_color()
+        cls.Experiment_Groups_In_Use = set()
 
-    def __init__(self, group: str | None = None, resetColor: bool = False) -> None:
+    def __init__(self, group: str | None = None, reset_color: bool = False) -> None:
         """Initialize a new experiment container.
 
         Args:
             resetColor: Reset the global color palette index
         """
-        super().__init__(resetColor)
+        super().__init__(reset_color)
 
         self.__experiments: list[SingleExpEIS] = []
-        self.__freqData: list[float] = []
+        self.__freq_data: list[float] = []
         self.__data: pd.DataFrame | None = None
 
         group = group or f"ExpGroup_{id(self)}"
-        if group in EIS.ExperimentGroupsInUse:
+        if group in EIS.Experiment_Groups_In_Use:
             raise ValueError(f"Experiment group '{group}' is already in use.")
 
-        self.__experimentGroup = group
-        EIS.ExperimentGroupsInUse.add(group)
+        self.__experiment_group = group
+        EIS.Experiment_Groups_In_Use.add(group)
 
-        self.__offsetShift = 0.0
+        self.__offset_shift = 0.0
 
     def __group(
         self, exp: SingleExpEIS, grouping: dict[str, str | Callable[[list[str]], str]]
@@ -225,11 +231,11 @@ class EIS(ColoredObject):
             exp: Experiment to group
             grouping: Dict mapping group names to values or callables
         """
-        for groupKey, g in grouping.items():
+        for group_key, g in grouping.items():
             if isinstance(g, str):
-                exp.data[groupKey] = g
+                exp.data[group_key] = g
             elif callable(g):
-                exp.data[groupKey] = g(exp._nameParts)
+                exp.data[group_key] = g(exp._name_parts)
             else:
                 raise ValueError(
                     "Grouping values must be either strings or callable functions."
@@ -237,37 +243,37 @@ class EIS(ColoredObject):
 
     def load(
         self,
-        folderPath: str,
+        folder_path: str,
         grouping: dict[str, str | Callable[[list[str]], str]] | None = None,
-    ) -> None:
+    ) -> "EIS":
         """Load EIS experiments from a folder with optional grouping.
 
         Args:
             folderPath: Path to folder containing EIS files
             grouping: Dict mapping group names to values or callables applied to filename parts
         """
-        if not (newExps := SingleExpEIS.loadFolder(folderPath)):
-            return
+        if not (new_exps := SingleExpEIS.load_folder(folder_path)):
+            return self
 
         grouping = grouping or {}
 
         # Set up frequency data if first addition
-        self.__freqData = self.__freqData or newExps[0].data["Frequency"].tolist()
+        self.__freq_data = self.__freq_data or new_exps[0].data["Frequency"].tolist()
 
         # Check frequency data matches - no interpolation impl. yet
-        for exp in newExps:
+        for exp in new_exps:
             # Check if frequency data matches
-            expFreqData = exp.data["Frequency"].tolist()
-            for fExp, fRef in zip(expFreqData, self.__freqData):
-                if abs(fExp - fRef) > FREQUENCY_TOLERANCE * fRef:
+            exp_freq_data = exp.data["Frequency"].tolist()
+            for f_exp, f_ref in zip(exp_freq_data, self.__freq_data):
+                if abs(f_exp - f_ref) > FREQUENCY_TOLERANCE * f_ref:
                     raise ValueError(
-                        f"Frequency data does not match. Difference: {abs(fExp - fRef)} "
-                        f"exceeds tolerance: {FREQUENCY_TOLERANCE * fRef}"
+                        f"Frequency data does not match. Difference: {abs(f_exp - f_ref)} "
+                        f"exceeds tolerance: {FREQUENCY_TOLERANCE * f_ref}"
                     )
 
             exp.data["Name"] = exp._name
-            exp.data["Frequency"] = self.__freqData
-            exp.data["Experiment Group"] = self.__experimentGroup
+            exp.data["Frequency"] = self.__freq_data
+            exp.data["Experiment Group"] = self.__experiment_group
             exp.data["Palette"] = self._palette
 
             # Grouping
@@ -275,14 +281,16 @@ class EIS(ColoredObject):
 
             self.__experiments.append(exp)
 
-    def remove(self, toRemove: str | set[str]) -> None:
-        if isinstance(toRemove, str):
-            toRemove = {toRemove}
+        return self
+
+    def remove(self, to_remove: str | set[str]) -> None:
+        if isinstance(to_remove, str):
+            to_remove = {to_remove}
 
         self.__experiments = [
             exp
             for exp in self.__experiments
-            if (exp._name not in toRemove and exp._filename not in toRemove)
+            if (exp._name not in to_remove and exp._filename not in to_remove)
         ]
         self.__data = None  # Invalidate cached data
 
@@ -293,27 +301,27 @@ class EIS(ColoredObject):
                 [exp.data for exp in self.__experiments], ignore_index=True
             )
             self.__data["Offset-Corrected Resistance"] = (
-                self.__data["Offset-Corrected Resistance"] + self.meanResistanceOffset
+                self.__data["Offset-Corrected Resistance"] + self.mean_resistance_offset
             )
         return self.__data
 
     @property
-    def experimentGroup(self) -> str:
-        return self.__experimentGroup
+    def experiment_group(self) -> str:
+        return self.__experiment_group
 
     @property
-    def __meanResistanceOffset(self) -> float:
+    def __mean_resistance_offset(self) -> float:
         """Get the mean resistance offset across all experiments."""
         if not self.__experiments:
             return 0.0
-        return float(np.mean([exp.resistanceOffset for exp in self.__experiments]))
+        return float(np.mean([exp.resistance_offset for exp in self.__experiments]))
 
     @property
-    def meanResistanceOffset(self) -> float:
+    def mean_resistance_offset(self) -> float:
         """Get the mean resistance offset across all experiments."""
-        return self.__meanResistanceOffset + self.__offsetShift
+        return self.__mean_resistance_offset + self.__offset_shift
 
-    @meanResistanceOffset.setter
-    def meanResistanceOffset(self, newMeanResistance) -> None:
-        self.__offsetShift = newMeanResistance - self.__meanResistanceOffset
+    @mean_resistance_offset.setter
+    def mean_resistance_offset(self, newMeanResistance) -> None:
+        self.__offset_shift = newMeanResistance - self.__mean_resistance_offset
         self.__data = None

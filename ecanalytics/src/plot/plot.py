@@ -19,9 +19,7 @@ from ..settings import Settings
 
 
 @singledispatch
-def plot(
-    data, x: str, y: str, title: str | None = None, noShow: bool = False, **kwargs
-) -> PlotResult:
+def plot(data, x: str, y: str, title: str | None = None, **kwargs) -> PlotResult:
     raise TypeError(
         f"Unsupported data type: {type(data).__name__}. Expected ImpedanceSpectrumExperiment."
     )
@@ -72,15 +70,15 @@ def __plot_single_eis_data(
 
         fig = ax.figure
 
-        cleanedKwargs = Settings.cleanKwargs(kwargs, otherKeysToRemove={"noSave"})
+        cleaned_kwargs = Settings.Clean_Kwargs(kwargs, other_keys_to_remove={"noSave"})
 
-        sns.lineplot(**config, **cleanedKwargs, sort=False)
+        sns.lineplot(**config, **cleaned_kwargs, sort=False)
 
-        ax.set_xlabel(f"{x} {EIS.SeriesInfo[x].symbol} [{EIS.SeriesInfo[x].unit}]")
-        ax.set_ylabel(f"{y} {EIS.SeriesInfo[y].symbol} [{EIS.SeriesInfo[y].unit}]")
+        ax.set_xlabel(f"{x} {EIS.Series_Info[x].symbol} [{EIS.Series_Info[x].unit}]")
+        ax.set_ylabel(f"{y} {EIS.Series_Info[y].symbol} [{EIS.Series_Info[y].unit}]")
 
-        ax.set_xscale(EIS.SeriesInfo[x].scale)
-        ax.set_yscale(EIS.SeriesInfo[y].scale)
+        ax.set_xscale(EIS.Series_Info[x].scale)
+        ax.set_yscale(EIS.Series_Info[y].scale)
 
         if title is not None:
             ax.set_title(
@@ -102,10 +100,10 @@ def __plot_multiple_eis(
     if len(data) == 0:
         raise ValueError("Data list is empty.")
 
-    combinedData = combineDataFrames(data, **kwargs)
+    combined_data = combine_data_frames(data, **kwargs)
 
     kwargs["hue"] = "Experiment Group"
-    return plot(combinedData, x, y, title, **kwargs)
+    return plot(combined_data, x, y, title, **kwargs)
 
 
 @singledispatch
@@ -123,8 +121,8 @@ def __bode_data(data: pd.DataFrame, title: str | None = None, **kwargs) -> PlotR
 
     fig = ax[0].figure
 
-    kwargsIntermed = kwargs.copy()
-    kwargsIntermed["noSave"] = True
+    kwargs_intermed = kwargs.copy()
+    kwargs_intermed["noSave"] = True
 
     with plt.rc_context(FIGURE_SETTINGS):
         if title is not None:
@@ -141,7 +139,7 @@ def __bode_data(data: pd.DataFrame, title: str | None = None, **kwargs) -> PlotR
             ax=ax[0],
             y="Impedance",
             title="Magnitude",
-            **kwargsIntermed,
+            **kwargs_intermed,
         )
         pr = plot(data, x="Frequency", ax=ax[1], y="Phase", title="Phase", **kwargs)
 
@@ -156,10 +154,10 @@ def __bode_multiple(
     if len(data) == 0:
         raise ValueError("Data list is empty.")
 
-    combinedData = combineDataFrames(data, **kwargs)
+    combined_data = combine_data_frames(data, **kwargs)
 
     kwargs["hue"] = "Experiment Group"
-    return bode(combinedData, title, **kwargs)
+    return bode(combined_data, title, **kwargs)
 
 
 @singledispatch
@@ -181,16 +179,16 @@ def __fresponse_multiple(
     if len(data) == 0:
         raise ValueError("Data list is empty.")
 
-    combinedData = combineDataFrames(data, **kwargs)
+    combined_data = combine_data_frames(data, **kwargs)
 
     kwargs["hue"] = "Experiment Group"
-    return fresponse(combinedData, y, title, **kwargs)
+    return fresponse(combined_data, y, title, **kwargs)
 
 
-def combineDataFrames(data: list[EIS | pd.DataFrame], **kwargs) -> pd.DataFrame:
+def combine_data_frames(data: list[EIS | pd.DataFrame], **kwargs) -> pd.DataFrame:
     if "hue" in kwargs:
         raise ValueError("Combining DataFrames with 'hue' is not supported.")
 
-    dataFrames = [d.data if isinstance(d, EIS) else d for d in data]
+    data_frames = [d.data if isinstance(d, EIS) else d for d in data]
 
-    return pd.concat(dataFrames, ignore_index=True)
+    return pd.concat(data_frames, ignore_index=True)

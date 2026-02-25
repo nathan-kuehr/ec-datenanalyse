@@ -14,7 +14,7 @@ class SingleExpEISBioLogic(EIS):
         return ","
 
     @property
-    def _seriesNaming(self) -> dict[str, str]:
+    def _series_naming(self) -> dict[str, str]:
         return {
             "freq/Hz": "Frequency",
             "|Z|/Ohm": "Impedance",
@@ -24,7 +24,7 @@ class SingleExpEISBioLogic(EIS):
         }
 
     @property
-    def _negativePhase(self) -> bool:
+    def _negative_phase(self) -> bool:
         return False
 
 
@@ -41,7 +41,7 @@ class SingleExpEISPalmSens(EIS):
         return "."
 
     @property
-    def _seriesNaming(self) -> dict[str, str]:
+    def _series_naming(self) -> dict[str, str]:
         return {
             "freq / Hz": "Frequency",
             "Z / Ohm": "Impedance",
@@ -51,5 +51,5 @@ class SingleExpEISPalmSens(EIS):
         }
 
     @property
-    def _negativePhase(self) -> bool:
+    def _negative_phase(self) -> bool:
         return True

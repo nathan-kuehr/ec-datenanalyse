@@ -5,20 +5,20 @@ import numpy as np
 
 
 class Import:
-    AllowedFileExtensions = {".txt", ".csv"}
+    Allowed_File_Extensions = {".txt", ".csv"}
 
     @classmethod
-    def isAllowedFile(cls, filePath: str) -> bool:
+    def Is_Allowed_File(cls, file_path: str) -> bool:
         """
         Checks if the file has an allowed extension.
         """
         return (
-            os.path.isfile(filePath)
-            and os.path.splitext(filePath)[1] in cls.AllowedFileExtensions
+            os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1] in cls.Allowed_File_Extensions
         )
 
     @classmethod
-    def parseFileName(cls, filePath: str) -> tuple[int, list[str]] | None:
+    def Parse_File_Name(cls, file_path: str) -> tuple[int, list[str]] | None:
         """
         Parses the file name to check if it contains a date (YYYYMMDD) and sample number (S##).
 
@@ -26,23 +26,23 @@ class Import:
         - int: Sample number
         - list[str]: Parts of the file name
         """
-        fileName = os.path.splitext(os.path.basename(filePath))[0]
-        nameParts = fileName.split("_")
+        file_name = os.path.splitext(os.path.basename(file_path))[0]
+        name_parts = file_name.split("_")
 
-        datePart = nameParts[0]
-        if len(datePart) != 8 or not datePart.isdigit():
+        date_part = name_parts[0]
+        if len(date_part) != 8 or not date_part.isdigit():
             return None
 
-        for i, part in enumerate(nameParts[1:], start=1):
+        for i, part in enumerate(name_parts[1:], start=1):
             if part.startswith("S") and part[1:].isdigit():
-                sampleNumber = int(nameParts.pop(i)[1:])
-                return (sampleNumber, nameParts + [f"S{sampleNumber:02d}"])
+                sample_number = int(name_parts.pop(i)[1:])
+                return (sample_number, name_parts + [f"S{sample_number:02d}"])
 
         return None
 
     @classmethod
-    def filesFromFolder(
-        cls, folderPath: str, extensions: set[str] | None = None
+    def Files_From_Folder(
+        cls, folder_path: str, extensions: set[str] | None = None
     ) -> list[str]:
         """Returns a list of file paths from the specified folder, filtering by allowed extensions.
 
@@ -57,15 +57,15 @@ class Import:
             FileNotFoundError: If folder doesn't exist
         """
         if extensions is None:
-            extensions = cls.AllowedFileExtensions
+            extensions = cls.Allowed_File_Extensions
 
-        if not os.path.isdir(folderPath):
-            raise FileNotFoundError(f"Folder not found: {folderPath}")
+        if not os.path.isdir(folder_path):
+            raise FileNotFoundError(f"Folder not found: {folder_path}")
 
         files = []
-        for item in os.listdir(folderPath):
-            path = os.path.join(folderPath, item)
-            if cls.isAllowedFile(path):
+        for item in os.listdir(folder_path):
+            path = os.path.join(folder_path, item)
+            if cls.Is_Allowed_File(path):
                 files.append(path)
 
         return files
@@ -87,7 +87,7 @@ class FileNameGroupSelector:
         self,
         drop: list[str] | None = None,
         rename: dict[str, str] | None = None,
-        noDateDrop: bool = False,
+        no_date_drop: bool = False,
     ) -> None:
         """Initialize the selector.
 
@@ -96,21 +96,21 @@ class FileNameGroupSelector:
             rename: Dict of regex patterns to replacement strings
             noDateDrop: If False, keep the date part (first element)
         """
-        self._dropPattern = [re.compile(pattern) for pattern in (drop or [])]
-        self._renamePattern = {re.compile(k): v for k, v in (rename or {}).items()}
-        self._noDateDrop = noDateDrop
+        self._drop_pattern = [re.compile(pattern) for pattern in (drop or [])]
+        self._rename_pattern = {re.compile(k): v for k, v in (rename or {}).items()}
+        self._no_date_drop = no_date_drop
 
     def _drop(self, part: str) -> bool:
         """Check if a part should be dropped."""
-        return any(pat.fullmatch(part) for pat in self._dropPattern)
+        return any(pat.fullmatch(part) for pat in self._drop_pattern)
 
     def _rename(self, part: str) -> str:
         """Apply rename patterns to a part."""
-        for pattern, repl in self._renamePattern.items():
+        for pattern, repl in self._rename_pattern.items():
             part = pattern.sub(repl, part)
         return part
 
-    def __call__(self, nameParts: list[str]) -> str:
+    def __call__(self, name_parts: list[str]) -> str:
         """Apply filtering and renaming to filename parts.
 
         Args:
@@ -119,9 +119,9 @@ class FileNameGroupSelector:
         Returns:
             Processed group name
         """
-        dropMask = np.array([not self._drop(p) for p in nameParts])
-        if self._noDateDrop and len(dropMask) > 0:
-            dropMask[0] = True
+        drop_mask = np.array([not self._drop(p) for p in name_parts])
+        if self._no_date_drop and len(drop_mask) > 0:
+            drop_mask[0] = True
 
-        parts = np.array(nameParts)[dropMask]
+        parts = np.array(name_parts)[drop_mask]
         return "_".join([self._rename(part) for part in parts])

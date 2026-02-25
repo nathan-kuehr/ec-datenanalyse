@@ -30,7 +30,7 @@ class CovarianceVisualization:
             )  # pyright: ignore
 
             # Scale covariances to desired confidence interval, such that they represent the CI ellipse
-            self.__covs *= chi2.ppf(self.ciFromErrorbarSpec(errorbar), df=2)
+            self.__covs *= chi2.ppf(self.ci_from_errorbar_spec(errorbar), df=2)
 
         self.__positions = grouped.mean().to_numpy()  # pyright: ignore
 
@@ -38,7 +38,7 @@ class CovarianceVisualization:
     def N(self) -> int:
         return self.__N
 
-    def interpCov(self, points: np.ndarray) -> np.ndarray:
+    def interp_cov(self, points: np.ndarray) -> np.ndarray:
         logCovs = [logm(cov) for cov in self.__covs]
         ipLogCovs = interp1d(np.arange(self.__nF), logCovs, axis=0)(points)
         return np.array([expm(cov) for cov in ipLogCovs])
@@ -55,7 +55,7 @@ class CovarianceVisualization:
         theta = alpha + t * angle
         return np.stack((np.cos(theta), np.sin(theta)), axis=1)
 
-    def findIntersections(self, hullpoints: np.ndarray) -> np.ndarray:
+    def find_intersections(self, hullpoints: np.ndarray) -> np.ndarray:
         N = len(hullpoints)
 
         # Idea:
@@ -76,14 +76,14 @@ class CovarianceVisualization:
         CD = D - C  # -> shape (copies, vecs, 2)
 
         # is vector i splitting vector j?
-        isCDsplit = self.cross(AB, C - A) * self.cross(AB, D - A) < 0
+        is_CD_split = self.cross(AB, C - A) * self.cross(AB, D - A) < 0
         # is vector j splitting vector i?
-        isABsplit = self.cross(CD, A - C) * self.cross(CD, B - C) < 0
+        is_AB_split = self.cross(CD, A - C) * self.cross(CD, B - C) < 0
 
-        intersecMask = isCDsplit & isABsplit
+        intersec_mask = is_CD_split & is_AB_split
 
         # Find all intersec indices
-        rows, cols = np.where(intersecMask)
+        rows, cols = np.where(intersec_mask)
         farthest = np.full(N - 1, -1, dtype=int)
         np.maximum.at(farthest, rows, cols)
         farthest[farthest <= np.arange(N - 1)] = -1  # avoid backward intersections
@@ -107,7 +107,7 @@ class CovarianceVisualization:
 
         # Interpolate positions and covariances
         positions = interp1d(np.arange(self.__nF), self.__positions, axis=0)(alpha)
-        covs = self.interpCov(alpha)
+        covs = self.interp_cov(alpha)
 
         # Do the round trip for a closed hull, i.e. right -> left -> back
         positions = np.vstack([positions, positions[-2::-1]])
@@ -117,9 +117,9 @@ class CovarianceVisualization:
         grad = np.gradient(positions, axis=0)
 
         # Gradient vanishes at turning point so set it 90° turned
-        turningPoint = (self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
-        prevGrad = grad[turningPoint - 1]
-        grad[turningPoint] = [-prevGrad[1], prevGrad[0]]
+        turning_point = (self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
+        prev_grad = grad[turning_point - 1]
+        grad[turning_point] = [-prev_grad[1], prev_grad[0]]
 
         normals = (
             np.stack([grad[:, 1], -grad[:, 0]], axis=1)
@@ -128,16 +128,16 @@ class CovarianceVisualization:
 
         # Attribute the normals of the interpol points to the real data points
         # -> easier angular interpol
-        realDataPoints = np.arange(2 * self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
-        normals[realDataPoints] = normals[realDataPoints - 1]
+        real_data_points = np.arange(2 * self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
+        normals[real_data_points] = normals[real_data_points - 1]
 
-        normalDotProds = np.clip(
+        normal_dot_prods = np.clip(
             np.einsum("ij,ij->i", normals[1:], normals[:-1]), -1, 1
         )
-        normalCrossProds = self.cross(normals[:-1], normals[1:])
+        normal_cross_prods = self.cross(normals[:-1], normals[1:])
 
-        rotdirs = np.where(normalCrossProds >= 0, 1, -1)
-        angles = np.arccos(normalDotProds)
+        rot_dirs = np.where(normal_cross_prods >= 0, 1, -1)
+        angles = np.arccos(normal_dot_prods)
 
         # How many support vectors are at each point?
         multiplicity = np.ceil(angles / np.radians(COVVIS_ANGLE_STEPS)).astype(int)
@@ -145,33 +145,33 @@ class CovarianceVisualization:
         multiplicity[multiplicity > 1] += 1  # account for endpoints in angular sweep
 
         # Prepapre direction vectors
-        dirvecs = []
+        dir_vecs = []
         for i, N in enumerate(multiplicity):
             n0 = normals[i]
 
             if N == 1:
-                dirvecs.append(n0[None, :])
-            elif rotdirs[i] == 1:
-                dirvecs.append(self.slerp(n0, normals[i + 1], np.linspace(0, 1, N)))
+                dir_vecs.append(n0[None, :])
+            elif rot_dirs[i] == 1:
+                dir_vecs.append(self.slerp(n0, normals[i + 1], np.linspace(0, 1, N)))
             else:
-                dirvecs.append(np.repeat(n0[None, :], N, axis=0))
-        dirvecs = np.concatenate(dirvecs, axis=0)
+                dir_vecs.append(np.repeat(n0[None, :], N, axis=0))
+        dir_vecs = np.concatenate(dir_vecs, axis=0)
 
         # Prepare base positions and covariances
-        basepos = np.repeat(positions[:-1], multiplicity, axis=0)
-        basecovs = np.repeat(covs[:-1], multiplicity, axis=0)
+        base_pos = np.repeat(positions[:-1], multiplicity, axis=0)
+        base_covs = np.repeat(covs[:-1], multiplicity, axis=0)
 
         # Calculate hull points
-        sigman = np.einsum("ijk,ik->ij", basecovs, dirvecs)
-        scale = np.sqrt(np.einsum("ij,ij->i", dirvecs, sigman))[:, None]
-        hullPoints = basepos + sigman / scale
+        sigman = np.einsum("ijk,ik->ij", base_covs, dir_vecs)
+        scale = np.sqrt(np.einsum("ij,ij->i", dir_vecs, sigman))[:, None]
+        hull_points = base_pos + sigman / scale
 
         # Remove intersections
-        turningPoint = np.sum(multiplicity[:turningPoint])
+        turning_point = np.sum(multiplicity[:turning_point])
         mask = np.concatenate(
             [
-                self.findIntersections(hullPoints[:turningPoint]),
-                self.findIntersections(hullPoints[turningPoint:]),
+                self.find_intersections(hull_points[:turning_point]),
+                self.find_intersections(hull_points[turning_point:]),
             ]
         )
 
@@ -201,10 +201,10 @@ class CovarianceVisualization:
         #     alpha=0.3,
         # )
 
-        return hullPoints[mask]
+        return hull_points[mask]
 
     @property
-    def ellipseParameters(self) -> np.ndarray:
+    def ellipse_parameters(self) -> np.ndarray:
         ellipses = []
         for cov in self.__covs:
             eigvals, eigvecs = np.linalg.eigh(cov)
@@ -214,7 +214,7 @@ class CovarianceVisualization:
         return np.array(ellipses)
 
     @classmethod
-    def ciFromErrorbarSpec(cls, errorbar) -> float:
+    def ci_from_errorbar_spec(cls, errorbar) -> float:
         if isinstance(errorbar, tuple) and errorbar[0] == "ci":
             return errorbar[1] / 100
         elif isinstance(errorbar, float):
@@ -228,18 +228,18 @@ class CovarianceVisualization:
 
     def draw(self, ax: Axes, color="#808080") -> None:
         color = list(hex2color(color))
-        edgeColor = color + [0.5]
-        faceColor = color + [0.2]
+        edge_color = color + [0.5]
+        face_color = color + [0.2]
 
-        for pos, (a, b, angle) in zip(self.__positions, self.ellipseParameters):  # pyright: ignore
+        for pos, (a, b, angle) in zip(self.__positions, self.ellipse_parameters):  # pyright: ignore
             ax.add_patch(
                 Ellipse(
                     tuple(pos),
                     width=2 * a,
                     height=2 * b,
                     angle=angle,
-                    edgecolor=edgeColor,
-                    facecolor=faceColor,
+                    edgecolor=edge_color,
+                    facecolor=face_color,
                     linestyle="-.",
                 )
             )

@@ -1,22 +1,10 @@
-import numpy as np
 import pandas as pd
 from functools import singledispatch
-from scipy.linalg import logm, expm
 
 from .plotresult import PlotResult
-from .plot import plot, combineDataFrames
+from .plot import plot, combine_data_frames
 from ..eis import EIS
 from .covariance_visualization import CovarianceVisualization
-
-
-def covInterpolation(sigma1: np.ndarray, sigma2: np.ndarray, t: float) -> np.ndarray:
-    """
-    Log Euclidean interpolation between two covariance matrices
-    """
-    log_sigma1 = logm(sigma1)[0]  # logm returns (matrix, info)
-    log_sigma2 = logm(sigma2)[0]
-    interpolated = (1 - t) * log_sigma1 + t * log_sigma2
-    return expm(interpolated)[0]  # expm also returns (matrix, info)
 
 
 @singledispatch
@@ -25,7 +13,7 @@ def nyquist(
     title: str | None = None,
     Rmin: float = 60,
     Rspan: float = 50,
-    offsetCorrect: bool = True,
+    offset_correct: bool = True,
     **kwargs,
 ) -> PlotResult:
     return __nyquist_data(
@@ -33,7 +21,7 @@ def nyquist(
         title=title,
         Rmin=Rmin,
         Rspan=Rspan,
-        offsetCorrect=offsetCorrect,
+        offset_correct=offset_correct,
         **kwargs,
     )
 
@@ -44,7 +32,7 @@ def __nyquist_data(
     title: str | None = None,
     Rmin: float = 60,
     Rspan: float = 50,
-    offsetCorrect: bool = True,
+    offset_correct: bool = True,
     **kwargs,
 ) -> PlotResult:
     config = {"x": "Resistance", "y": "Neg. Reactance"}
@@ -53,26 +41,26 @@ def __nyquist_data(
     kwargs.setdefault("err_style", "band")
 
     # See if offset correction is desired
-    if offsetCorrect:
+    if offset_correct:
         config["x"] = "Offset-Corrected Resistance"
 
     # Prepare data for mean & covs
-    hueGroup = kwargs.get("hue", "Experiment Group")
+    hue_group = kwargs.get("hue", "Experiment Group")
 
-    GroupingArgs = {"hue", "style", "size"}
+    Grouping_Args = {"hue", "style", "size"}
     grouping = ["Frequency"] + [
-        kwargs.get(arg) for arg in GroupingArgs if arg in kwargs
+        kwargs.get(arg) for arg in Grouping_Args if arg in kwargs
     ]
     grouped = data.groupby(grouping)
 
-    meanData = grouped.agg(
+    mean_data = grouped.agg(
         {config["x"]: "mean", config["y"]: "mean", "Palette": "first"}
     ).reset_index()
 
-    kwargsIntermed = kwargs.copy()
-    kwargsIntermed["noSave"] = True
+    kwargs_intermed = kwargs.copy()
+    kwargs_intermed["noSave"] = True
 
-    with plot(meanData, **config, title=title, **kwargsIntermed) as (fig, axes):
+    with plot(mean_data, **config, title=title, **kwargs_intermed) as (fig, axes):
         ax = axes[0]
         ax.set_xscale("linear")
         ax.set_yscale("linear")
@@ -81,18 +69,18 @@ def __nyquist_data(
         ax.set_ylim(bottom=0, top=Rspan)
 
         if kwargs.get("errorbar") is not None:
-            grouped = data.groupby(hueGroup)
-            for (_, group), line in zip(data.groupby(hueGroup), ax.lines):
+            grouped = data.groupby(hue_group)
+            for (_, group), line in zip(data.groupby(hue_group), ax.lines):
                 color = line.get_color()
-                covVis = CovarianceVisualization(
+                cov_vis = CovarianceVisualization(
                     group, kwargs.get("errorbar"), config["x"]
                 )
 
-                if covVis.N == 1:
+                if cov_vis.N == 1:
                     continue  # No covariance to plot
 
                 if kwargs.get("err_style") == "band":
-                    hull = covVis.hull(ax)
+                    hull = cov_vis.hull(ax)
                     ax.fill(
                         hull[:, 0],
                         hull[:, 1],
@@ -102,7 +90,7 @@ def __nyquist_data(
                         zorder=1,
                     )
                 elif kwargs.get("err_style") == "bars":
-                    covVis.draw(ax, color=color)
+                    cov_vis.draw(ax, color=color)
                 else:
                     raise ValueError(
                         f"Unknown err_style '{kwargs.get('err_style')}'. Supported styles are 'band' and 'bars'."
@@ -119,20 +107,20 @@ def __nyquist_multiple(
     title: str | None = None,
     Rmin: float = 60,
     Rspan: float = 50,
-    offsetCorrect: bool = True,
+    offset_correct: bool = True,
     **kwargs,
 ) -> PlotResult:
     if len(data) == 0:
         raise ValueError("Data list is empty.")
 
-    combinedData = combineDataFrames(data, **kwargs)
+    combined_data = combine_data_frames(data, **kwargs)
     kwargs["hue"] = "Experiment Group"
 
     return nyquist(
-        combinedData,
+        combined_data,
         title,
         Rmin=Rmin,
         Rspan=Rspan,
-        offsetCorrect=offsetCorrect,
+        offset_correct=offset_correct,
         **kwargs,
     )
