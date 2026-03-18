@@ -1,15 +1,21 @@
 import pandas as pd
 from functools import singledispatch
+import matplotlib.ticker as ticker
+
+from matplotlib.colors import to_rgba
+from matplotlib.axes import Axes
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from .plotresult import PlotResult
-from .plot import plot, combine_data_frames
-from ..eis import EIS
+from .plot import plot, __combine_data_frames, __prepare_groupby, __plot_clean_kwargs
+from ..data.experiment import Experiment
 from .covariance_visualization import CovarianceVisualization
+from ..config import SNS_LINEPLOT_DEFAULT_SETTINGS
 
 
 @singledispatch
 def nyquist(
-    data: EIS,
+    data: Experiment,
     title: str | None = None,
     Rmin: float = 60,
     Rspan: float = 50,
@@ -33,91 +39,115 @@ def __nyquist_data(
     Rmin: float = 60,
     Rspan: float = 50,
     offset_correct: bool = True,
+    add_inset: bool = True,
     **kwargs,
 ) -> PlotResult:
-    config = {"x": "Resistance", "y": "Neg. Reactance"}
+    # Choose correct x-axis
+    x_axis = ("Offset-Corrected " if offset_correct else "") + "Resistance"
+    config = {"x": x_axis, "y": "Neg. Reactance", "title": title, "noSave": True}
 
-    kwargs.setdefault("errorbar", ("ci", 95))
-    kwargs.setdefault("err_style", "band")
+    # Subdivide in diff. plot groups
+    grouped = __prepare_groupby(data, kwargs, include_frequency=True)
 
-    # See if offset correction is desired
-    if offset_correct:
-        config["x"] = "Offset-Corrected Resistance"
-
-    # Prepare data for mean & covs
-    hue_group = kwargs.get("hue", "Experiment Group")
-
-    Grouping_Args = {"hue", "style", "size"}
-    grouping = ["Frequency"] + [
-        kwargs.get(arg) for arg in Grouping_Args if arg in kwargs
-    ]
-    grouped = data.groupby(grouping)
-
+    # Aggregate means
     mean_data = grouped.agg(
         {config["x"]: "mean", config["y"]: "mean", "Palette": "first"}
     ).reset_index()
 
-    kwargs_intermed = kwargs.copy()
-    kwargs_intermed["noSave"] = True
+    kwargs = SNS_LINEPLOT_DEFAULT_SETTINGS | kwargs | config
+    with plot(mean_data, **kwargs) as (fig, ax):
+        assert isinstance(ax, Axes)
 
-    with plot(mean_data, **config, title=title, **kwargs_intermed) as (fig, axes):
-        ax = axes[0]
+        # Linear scale
         ax.set_xscale("linear")
         ax.set_yscale("linear")
 
+        # Equally scaled axes
         ax.set_xlim(left=Rmin, right=Rmin + Rspan)
         ax.set_ylim(bottom=0, top=Rspan)
 
-        if kwargs.get("errorbar") is not None:
-            grouped = data.groupby(hue_group)
-            for (_, group), line in zip(data.groupby(hue_group), ax.lines):
-                color = line.get_color()
-                cov_vis = CovarianceVisualization(
-                    group, kwargs.get("errorbar"), config["x"]
-                )
+        if add_inset:
+            inset: Axes = inset_axes(
+                ax, width="30%", height="30%", loc="upper left", borderpad=2
+            )
+            plot(mean_data, **(kwargs | {"ax": inset, "title": None}))
 
-                if cov_vis.N == 1:
+            inset.set(xscale="linear", yscale="linear", xlabel=None, ylabel=None)
+            if (legend := inset.get_legend()) is not None:
+                legend.remove()
+
+            x_min, x_max = inset.get_xlim()
+            y_min, y_max = inset.get_ylim()
+
+            x_mean = (x_min + x_max) / 2
+            y_mean = (y_min + y_max) / 2
+
+            span = max(x_max - x_min, y_max - y_min) / 2
+
+            inset.set(
+                xlim=(x_mean - span, x_mean + span), ylim=(y_mean - span, y_mean + span)
+            )
+            inset.tick_params(axis="both", which="major", labelsize=7)
+
+            inset.xaxis.set_major_formatter(
+                ticker.FuncFormatter(lambda x, pos: "{:,.1f}".format(x / 1000) + "K")
+            )
+            inset.yaxis.set_major_formatter(
+                ticker.FuncFormatter(lambda x, pos: "{:,.0f}".format(x / 1000) + "K")
+            )
+
+        # Draw uncertainty hulls
+        if kwargs.get("errorbar") is not None:
+            # Do not group over freqs this time
+            grouped = __prepare_groupby(data, kwargs)
+
+            for line, (_, group) in zip(ax.lines, grouped):
+                if group["Sample Name"].nunique() == 1:
                     continue  # No covariance to plot
 
-                if kwargs.get("err_style") == "band":
-                    hull = cov_vis.hull(ax)
-                    ax.fill(
-                        hull[:, 0],
-                        hull[:, 1],
-                        color=color,
-                        alpha=0.1,
-                        label="Hüllkurve",
-                        zorder=1,
-                    )
-                elif kwargs.get("err_style") == "bars":
-                    cov_vis.draw(ax, color=color)
+                # Define styling
+                if kwargs.get("style") is not None:
+                    fill_config = {
+                        "facecolor": to_rgba(line.get_color(), 0.1),
+                        "edgecolor": to_rgba(line.get_color(), 1),
+                        "linewidth": 0.5,
+                        "linestyle": line.get_linestyle(),
+                        "zorder": 1,
+                    }
                 else:
-                    raise ValueError(
-                        f"Unknown err_style '{kwargs.get('err_style')}'. Supported styles are 'band' and 'bars'."
-                    )
+                    fill_config = {
+                        "color": line.get_color(),
+                        "alpha": 0.1,
+                        "zorder": 1,
+                    }
 
-                line.set_zorder(2)  # Bring lines to front
+                # Draw uncertainties
+                covvis = CovarianceVisualization(group, kwargs)
+                if kwargs.get("err_style") == "bars":
+                    covvis.draw_ellipses(ax, fill_config)
+                    if add_inset:
+                        covvis.draw_ellipses(inset, fill_config)
+                else:
+                    covvis.draw_hull(ax, fill_config)
+                    if add_inset:
+                        covvis.draw_hull(inset, fill_config)
 
-    return PlotResult(title, fig, **kwargs)
+                line.set_zorder(2)
+
+    return PlotResult(title, fig, **__plot_clean_kwargs(kwargs))
 
 
 @nyquist.register(list)
 def __nyquist_multiple(
-    data: list[EIS | pd.DataFrame],
+    data: list[Experiment | pd.DataFrame],
     title: str | None = None,
     Rmin: float = 60,
     Rspan: float = 50,
     offset_correct: bool = True,
     **kwargs,
 ) -> PlotResult:
-    if len(data) == 0:
-        raise ValueError("Data list is empty.")
-
-    combined_data = combine_data_frames(data, **kwargs)
-    kwargs["hue"] = "Experiment Group"
-
     return nyquist(
-        combined_data,
+        __combine_data_frames(data, kwargs),
         title,
         Rmin=Rmin,
         Rspan=Rspan,
