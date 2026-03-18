@@ -1,7 +1,7 @@
 import os
 from copy import deepcopy
 
-from .eis import EIS
+from .data.experiment import Experiment
 
 
 class Settings:
@@ -120,5 +120,5 @@ def _reset(args: set) -> None:
             Static_Global_Default_Settings.show_on_save
         )
 
-    if EIS in args:
-        EIS.Reset_Tracked_Objects()
+    if Experiment in args:
+        Experiment.Reset_Tracked_Objects()

@@ -13,7 +13,10 @@ dependencies = [
   "matplotlib",
   "seaborn",
   "opencv-python",
-  "scikit-image"
+  "scikit-image",
+  "tqdm",
+  "pyimpspec",
+  "shapely"
 ]
 description = "Projekt, dass die Analysefunktionen bereitstellt, welche ich im Rahmen meiner Masterarbeit am FZJ nutze."
 name = "lab-analytics"
