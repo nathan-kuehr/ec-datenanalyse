@@ -27,5 +27,8 @@ repos:
             scipy,
             numpy,
             seaborn,
-            scikit-image
+            scikit-image,
+            tqdm,
+            pyimpspec,
+            shapely
           ]
