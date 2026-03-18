@@ -2,9 +2,11 @@ import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.patches import Ellipse
-from matplotlib.colors import hex2color
 from scipy.stats import chi2
 from scipy.linalg import logm, expm
+
+from shapely.geometry import MultiPoint
+from shapely.ops import unary_union
 
 from scipy.interpolate import interp1d
 
@@ -12,234 +14,114 @@ from ..config import COVVIS_ANGLE_STEPS, COVVIS_INTERPOLATION_POINTS
 
 
 class CovarianceVisualization:
-    def __init__(
-        self, data: pd.DataFrame, errorbar, real: str = "Offset-Corrected Resistance"
-    ) -> None:
-        self.__nF = int(data["Frequency"].nunique())  # pyright: ignore
-        self.__N = int(data["Name"].nunique())  # pyright: ignore
+    __Theta = np.linspace(0, 2 * np.pi, 360 // COVVIS_ANGLE_STEPS)
+    __Z = np.stack((np.cos(__Theta), np.sin(__Theta)), axis=1)
 
-        grouped = data.groupby("Frequency")[[real, "Neg. Reactance"]]
+    def __init__(self, data: pd.DataFrame, kwargs: dict) -> None:
+        grouped = data.groupby("Frequency")[[kwargs["x"], kwargs["y"]]]
+        means = grouped.mean()
 
-        self.__freqs = np.array(list(grouped.groups.keys()))
+        # Freqs & base points
+        self.__freqs = means.index.to_numpy()
+        self.__positions = means.to_numpy()
 
-        if self.__N == 1:
-            self.__covs = np.ones((self.__nF, 2, 2)) * np.nan
+        # Data point numbers
+        self.__n_freqs = len(self.__freqs)
+        self.__n_samples = data["Sample Name"].nunique()
+
+        if self.__n_samples > 1:
+            covs = grouped.cov().to_numpy().reshape(self.__n_freqs, 2, 2)  # pyright: ignore
+
+            # Scale w/ appropriate factor to represent desired CI
+            self.__covs = covs * self.__cov_scaling_factor_from_errorbar_spec(kwargs)
         else:
-            self.__covs = (
-                (grouped.cov() / self.__N).to_numpy().reshape((self.__nF, 2, 2))  # pyright: ignore
-            )  # pyright: ignore
+            self.__covs = np.full((self.__n_freqs, 2, 2), np.nan)
 
-            # Scale covariances to desired confidence interval, such that they represent the CI ellipse
-            self.__covs *= chi2.ppf(self.ci_from_errorbar_spec(errorbar), df=2)
+        self.__hull = None
+        self.__ellipses = None
 
-        self.__positions = grouped.mean().to_numpy()  # pyright: ignore
+    def __cov_scaling_factor_from_errorbar_spec(self, kwargs: dict) -> float:
+        errorbar = kwargs["errorbar"]
 
-    @property
-    def N(self) -> int:
-        return self.__N
+        measure, scale = ("se", 95)
 
-    def interp_cov(self, points: np.ndarray) -> np.ndarray:
-        logCovs = [logm(cov) for cov in self.__covs]
-        ipLogCovs = interp1d(np.arange(self.__nF), logCovs, axis=0)(points)
-        return np.array([expm(cov) for cov in ipLogCovs])
-
-    def cross(self, p1: np.ndarray, p2: np.ndarray) -> np.ndarray:
-        return p1[..., 0] * p2[..., 1] - p1[..., 1] * p2[..., 0]
-
-    def slerp(self, n0, n1, t):
-        alpha = np.arctan2(n0[1], n0[0])
-        angle = np.arctan2(n1[1], n1[0]) - alpha
-        if np.abs(angle + np.pi) < 1e-9:
-            angle = np.pi
-
-        theta = alpha + t * angle
-        return np.stack((np.cos(theta), np.sin(theta)), axis=1)
-
-    def find_intersections(self, hullpoints: np.ndarray) -> np.ndarray:
-        N = len(hullpoints)
-
-        # Idea:
-        # Intersection if A->B crosses C->D, that is iff
-        # A and B are on different sides of CD and
-        # C and D are on different sides of AB
-        # --> det(AB, AC) * det(AB, AD) < 0 and det(CD, CA) * det(CD, CB) < 0
-
-        # i = vec index
-        A = hullpoints[:-1, None, :]
-        B = hullpoints[1:, None, :]
-
-        # j = vec index
-        C = hullpoints[None, :-1, :]
-        D = hullpoints[None, 1:, :]
-
-        AB = B - A  # -> shape (vecs, copies, 2)
-        CD = D - C  # -> shape (copies, vecs, 2)
-
-        # is vector i splitting vector j?
-        is_CD_split = self.cross(AB, C - A) * self.cross(AB, D - A) < 0
-        # is vector j splitting vector i?
-        is_AB_split = self.cross(CD, A - C) * self.cross(CD, B - C) < 0
-
-        intersec_mask = is_CD_split & is_AB_split
-
-        # Find all intersec indices
-        rows, cols = np.where(intersec_mask)
-        farthest = np.full(N - 1, -1, dtype=int)
-        np.maximum.at(farthest, rows, cols)
-        farthest[farthest <= np.arange(N - 1)] = -1  # avoid backward intersections
-
-        # Find largest intersection for each row
-        from_ = np.arange(N - 1)[farthest > -1]
-        to_ = farthest[farthest > -1]
-
-        mask = np.zeros(N)
-        np.add.at(mask, from_ + 1, 1)
-        np.add.at(mask, to_ + 1, -1)
-
-        mask = np.cumsum(mask) == 0
-
-        return mask
-
-    def hull(self, ax) -> np.ndarray:
-        alpha = np.linspace(
-            0, self.__nF - 1, (self.__nF - 1) * COVVIS_INTERPOLATION_POINTS + 1
-        )
-
-        # Interpolate positions and covariances
-        positions = interp1d(np.arange(self.__nF), self.__positions, axis=0)(alpha)
-        covs = self.interp_cov(alpha)
-
-        # Do the round trip for a closed hull, i.e. right -> left -> back
-        positions = np.vstack([positions, positions[-2::-1]])
-        covs = np.vstack([covs, covs[-2::-1]])
-
-        # Gradients and normals
-        grad = np.gradient(positions, axis=0)
-
-        # Gradient vanishes at turning point so set it 90° turned
-        turning_point = (self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
-        prev_grad = grad[turning_point - 1]
-        grad[turning_point] = [-prev_grad[1], prev_grad[0]]
-
-        normals = (
-            np.stack([grad[:, 1], -grad[:, 0]], axis=1)
-            / np.linalg.norm(grad, axis=1)[:, None]
-        )
-
-        # Attribute the normals of the interpol points to the real data points
-        # -> easier angular interpol
-        real_data_points = np.arange(2 * self.__nF - 1) * COVVIS_INTERPOLATION_POINTS
-        normals[real_data_points] = normals[real_data_points - 1]
-
-        normal_dot_prods = np.clip(
-            np.einsum("ij,ij->i", normals[1:], normals[:-1]), -1, 1
-        )
-        normal_cross_prods = self.cross(normals[:-1], normals[1:])
-
-        rot_dirs = np.where(normal_cross_prods >= 0, 1, -1)
-        angles = np.arccos(normal_dot_prods)
-
-        # How many support vectors are at each point?
-        multiplicity = np.ceil(angles / np.radians(COVVIS_ANGLE_STEPS)).astype(int)
-        multiplicity[multiplicity < 1] = 1
-        multiplicity[multiplicity > 1] += 1  # account for endpoints in angular sweep
-
-        # Prepapre direction vectors
-        dir_vecs = []
-        for i, N in enumerate(multiplicity):
-            n0 = normals[i]
-
-            if N == 1:
-                dir_vecs.append(n0[None, :])
-            elif rot_dirs[i] == 1:
-                dir_vecs.append(self.slerp(n0, normals[i + 1], np.linspace(0, 1, N)))
-            else:
-                dir_vecs.append(np.repeat(n0[None, :], N, axis=0))
-        dir_vecs = np.concatenate(dir_vecs, axis=0)
-
-        # Prepare base positions and covariances
-        base_pos = np.repeat(positions[:-1], multiplicity, axis=0)
-        base_covs = np.repeat(covs[:-1], multiplicity, axis=0)
-
-        # Calculate hull points
-        sigman = np.einsum("ijk,ik->ij", base_covs, dir_vecs)
-        scale = np.sqrt(np.einsum("ij,ij->i", dir_vecs, sigman))[:, None]
-        hull_points = base_pos + sigman / scale
-
-        # Remove intersections
-        turning_point = np.sum(multiplicity[:turning_point])
-        mask = np.concatenate(
-            [
-                self.find_intersections(hull_points[:turning_point]),
-                self.find_intersections(hull_points[turning_point:]),
-            ]
-        )
-
-        # ax.plot(hullPoints[:, 0], hullPoints[:, 1], color="k", linewidth=1, marker='o', markersize=1)
-        # ax.quiver(
-        #     basepos[:, 0],
-        #     basepos[:, 1],
-        #     dirvecs[:, 0],
-        #     dirvecs[:, 1],
-        #     angles="xy",
-        #     scale_units="xy",
-        #     scale=10,
-        #     width=0.002,
-        #     color="k",
-        #     alpha=1,
-        # )
-        # ax.quiver(
-        #     basepos[:, 0],
-        #     basepos[:, 1],
-        #     (sigman / scale)[:, 0],
-        #     (sigman / scale)[:, 1],
-        #     angles="xy",
-        #     scale_units="xy",
-        #     scale=1,
-        #     width=0.002,
-        #     color="b",
-        #     alpha=0.3,
-        # )
-
-        return hull_points[mask]
-
-    @property
-    def ellipse_parameters(self) -> np.ndarray:
-        ellipses = []
-        for cov in self.__covs:
-            eigvals, eigvecs = np.linalg.eigh(cov)
-            axes = np.sqrt(eigvals)  # -> covs are already scaled to CI
-            angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
-            ellipses.append((axes[0], axes[1], angle))
-        return np.array(ellipses)
-
-    @classmethod
-    def ci_from_errorbar_spec(cls, errorbar) -> float:
-        if isinstance(errorbar, tuple) and errorbar[0] == "ci":
-            return errorbar[1] / 100
-        elif isinstance(errorbar, float):
-            return errorbar / 100
-        elif errorbar == "ci":
-            return 0.95
+        if isinstance(errorbar, tuple) and len(errorbar) == 2:
+            measure, scale = errorbar
+        elif isinstance(errorbar, (int, float)):
+            scale = errorbar
+        elif isinstance(errorbar, str):
+            measure = errorbar
         else:
             raise ValueError(
-                "Unsupported errorbar specification for covariance visualization"
+                "Unsupported errorbar specification for parametric uncertainty (covariance) visualization."
             )
 
-    def draw(self, ax: Axes, color="#808080") -> None:
-        color = list(hex2color(color))
-        edge_color = color + [0.5]
-        face_color = color + [0.2]
+        factor = float(chi2.ppf(scale / 100, df=2))
 
-        for pos, (a, b, angle) in zip(self.__positions, self.ellipse_parameters):  # pyright: ignore
-            ax.add_patch(
-                Ellipse(
-                    tuple(pos),
-                    width=2 * a,
-                    height=2 * b,
-                    angle=angle,
-                    edgecolor=edge_color,
-                    facecolor=face_color,
-                    linestyle="-.",
-                )
+        if measure == "sd":
+            return factor
+        elif measure == "se":
+            return factor / self.__n_samples
+        else:
+            raise ValueError(
+                "Unsupported errorbar specification for parametric uncertainty (covariance) visualization."
             )
+
+    def __interp_cov(self, alpha: np.ndarray) -> np.ndarray:
+        logCovs = [logm(cov) for cov in self.__covs]
+        ipLogCovs = interp1d(np.arange(self.__n_freqs), logCovs, axis=0)(alpha)
+        return np.array([expm(cov) for cov in ipLogCovs])
+
+    def _hull(self) -> np.ndarray:
+        alpha = np.linspace(
+            0,
+            self.__n_freqs - 1,
+            (self.__n_freqs - 1) * COVVIS_INTERPOLATION_POINTS + 1,
+        )
+
+        # Interpolate the covariance matrices
+        pos = interp1d(np.arange(self.__n_freqs), self.__positions, axis=0)(alpha)
+        covs = self.__interp_cov(alpha)
+
+        # Sample the border of the ellipse:
+        # Cholesky: LL^T = Σ
+        # Ellipse border: (x-c)^T Σ^-1 (x-c) = 1
+        # --> <z, z> = 1    with   z = L^-1(x-c)
+        # --> x = Lz + c
+        L = np.linalg.cholesky(covs)
+        Lz = np.einsum("nij,zj->nzi", L, self.__Z)
+        x = Lz + pos[:, None, :]
+
+        # Add neighbouring ellipses
+        pairs = [
+            MultiPoint(np.vstack((x[i], x[i + 1]))).convex_hull
+            for i in range(len(x) - 1)
+        ]
+
+        # Unite all together
+        if (union := unary_union(pairs)).geom_type != "Polygon":
+            raise RuntimeError(
+                "The union of covariance pairs must always be connected!"
+            )
+
+        return np.array(union.exterior.coords)  # pyright: ignore
+
+    def _ellipse_parameters(self) -> list:
+        ellipses = []
+        for pos, cov in zip(self.__positions, self.__covs):
+            eigvals, eigvecs = np.linalg.eigh(cov)
+            axes = 2 * np.sqrt(eigvals)  # -> covs are already scaled to CI
+            angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
+            ellipses.append((tuple(pos), axes[0], axes[1], angle))
+        return ellipses
+
+    def draw_hull(self, ax: Axes, config: dict) -> None:
+        if self.__hull is None:
+            self.__hull = self._hull()
+        ax.fill(self.__hull[:, 0], self.__hull[:, 1], **config)
+
+    def draw_ellipses(self, ax: Axes, config: dict) -> None:
+        if self.__ellipses is None:
+            self.__ellipses = self._ellipse_parameters()
+        for pos, a, b, angle in self.__ellipses:
+            ax.add_patch(Ellipse(pos, width=a, height=b, angle=angle, **config))
