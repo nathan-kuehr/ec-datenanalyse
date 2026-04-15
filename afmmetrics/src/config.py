@@ -1,30 +1,85 @@
-MUGEL_DIAMETER_RANGE = (0.12, 0.22)
+from ecanalytics.src.config import DataSeriesInfo
 
-DEFAULT_PADDING_FACTOR = 2
 
-DEFAULT_CAMBER_CUTOFF_WAVELENGTH = 1.302  # μm
-DEFAULT_DENOISE_H_PARAMETER = 3
-DEFAULT_DENOISE_TEMPLATE_WINDOW_SIZE = (
-    0.08  # μm --> Defaults to 4x4px in 10x10 μm @ 512x512 px
-)
-DEFAULT_DENOISE_SEARCH_WINDOW_SIZE = (
-    0.6  # μm --> Defaults to 30x30px in 10x10 μm @ 512x512 px
-)
+# Config for AFM Image
 
-DEFAULT_TOPHAT_DIM_MARGIN = 1.5
+READIN_HEIGHT_BLOCK_REGEX = r"# Channel: Height\n# Width: (\d*) (.*)\n# Height: (\d*) (.*)\n# Value units: (.*)([^#]*)"
+IMAGE_PADDING_FACTOR = 2
 
-FIGURE_SETTINGS = {
-    "font.family": "Arial",
-    "font.size": 12,
-    "axes.titlesize": 14,
-    "axes.titleweight": "medium",
-    "xtick.labelsize": 10,
-    "ytick.labelsize": 10,
-    "legend.fontsize": 10,
-    "legend.title_fontsize": 11,
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "figure.figsize": (7, 6),
+# Config for Microgel Image
+
+ESTIMATED_MICROGEL_DIAMETER_RANGE = (0.12, 0.22)  # μm
+
+DEFAULT_PREPROCESS_SETTINGS = {
+    "scan-line-align": {},
+    "outlier-removal": {
+        "multiplier": 1.75,
+        "dilation": 0.1,  # μm
+    },
+    "hpf": {
+        "cutoff": 1.302,  # μm --> proved to be good in gwyddion
+        "width": None,  # auto-choose the same as the cutoff
+    },
+    "denoise": {
+        "h": 3,
+        "patch_size": 0.08,  # μm --> defaults to 4x4px in 10x10 μm @ 512x512 px
+        "patch_distance": 0.6,  # μm --> defaults to 30x30px in 10x10 μm @ 512x512 px
+        "fast_mode": True,
+    },
+    "top-hat": {
+        "scale": 1.75 * max(ESTIMATED_MICROGEL_DIAMETER_RANGE)  # μm
+    },
+    "gaussian": {
+        "cutoff": 0.1  # μm
+    },
 }
 
-DEFAULT_PEAK_DISTR_PRIOR = (140, 30)
+TARGET_REGION_PROPS = {
+    "area",
+    "axis_major_length",
+    "axis_minor_length",
+    "centroid_weighted",
+    "eccentricity",
+    "equivalent_diameter_area",
+    "label",
+    "orientation",
+    "perimeter",
+}
+
+REGION_PROPS_RENAMING = {
+    "area": "Area",
+    "axis_major_length": "Length",
+    "axis_minor_length": "Width",
+    "eccentricity": "Eccentricity",
+    "equivalent_diameter_area": "Equivalent Diameter",
+    "label": "Label",
+    "orientation": "Orientation",
+    "perimeter": "Perimeter",
+    "_Masked_Intensity_Patch": "Microgel Patch",
+    "_Masked_Max_Intensity": "Height",
+}
+
+# == PLOTTING SETTINGS ==
+
+SCALEBAR_SETTINGS = {"sep": 3, "loc": "lower right", "borderpad": 0.5, "frameon": False}
+SCALEBAR_COLOR_THRESHOLD = 0.6
+PROFILE_PLOT_FIGSIZE = (13, 6)
+
+
+MICROGEL_SERIES_INFO = {
+    "Height": DataSeriesInfo("$h$", "nm", "linear"),
+    "Distance": DataSeriesInfo("$d$", "nm", "linear"),
+}
+
+
+MG_STATS_SERIES_INFO = {
+    "Concentration": DataSeriesInfo(
+        "$c_\\mathrm{MG}$", "$\\frac{\\mathrm{mg}}{\\mathrm{ml}}$", "linear"
+    ),
+    "Eccentricity": DataSeriesInfo("$\\epsilon$", None, "linear"),
+    "Circularity": DataSeriesInfo("$C$", None, "linear"),
+    "Equiv. Diameter": DataSeriesInfo("$\\Phi_{\\mathrm{eq}}$", "μm", "linear"),
+    "Density": DataSeriesInfo("$\\sigma$", "$\\mu\\mathrm{m}^{-2}$", "linear"),
+    "Coverage": DataSeriesInfo("$\\theta$", None, "linear"),
+    "Count": DataSeriesInfo("$N_\\mathrm{MG}$", None, "linear"),
+}
