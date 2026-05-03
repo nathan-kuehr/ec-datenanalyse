@@ -5,17 +5,21 @@ class Importer:
     __Allowed_File_Extensions = {".txt", ".csv"}
 
     @classmethod
-    def Is_Allowed_File(cls, file_path: str) -> bool:
+    def Is_Allowed_File(cls, file_path: str, extensions: set[str] = None) -> bool:
         """
         Checks if the file has an allowed extension.
         """
+        if extensions is None:
+            extensions = cls.__Allowed_File_Extensions
+
         return (
-            os.path.isfile(file_path)
-            and os.path.splitext(file_path)[1] in cls.__Allowed_File_Extensions
+            os.path.isfile(file_path) and os.path.splitext(file_path)[1] in extensions
         )
 
     @classmethod
-    def Parse_File_Name(cls, file_path: str) -> tuple[int, list[str]] | None:
+    def Parse_File_Name(
+        cls, file_path: str, require_sample_no: bool = True
+    ) -> tuple[int, list[str]] | None:
         """
         Parses the file name to check if it contains a date (YYYYMMDD) and sample number (S##).
 
@@ -30,12 +34,15 @@ class Importer:
         if len(date_part) != 8 or not date_part.isdigit():
             return None
 
-        for i, part in enumerate(name_parts[1:], start=1):
-            if part.startswith("S") and part[1:].isdigit():
-                sample_number = int(name_parts.pop(i)[1:])
-                return (sample_number, name_parts + [f"S{sample_number:02d}"])
+        if require_sample_no:
+            for i, part in enumerate(name_parts[1:], start=1):
+                if part.startswith("S") and part[1:].isdigit():
+                    sample_number = int(name_parts.pop(i)[1:])
+                    return (sample_number, name_parts + [f"S{sample_number:02d}"])
 
-        return None
+            return None
+        else:
+            return 1, name_parts
 
     @classmethod
     def Files_From_Folder(
@@ -62,7 +69,7 @@ class Importer:
         files = []
         for item in os.listdir(folder_path):
             path = os.path.join(folder_path, item)
-            if cls.Is_Allowed_File(path):
+            if cls.Is_Allowed_File(path, extensions):
                 files.append(path)
 
         return files

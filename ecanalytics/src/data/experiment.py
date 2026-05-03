@@ -7,69 +7,52 @@ from typing import TYPE_CHECKING
 from collections.abc import Callable
 
 from .sample import Sample
+from .sample_container import SampleContainer
 
-from ..palette import NEIColorPalette
 from ..config import EIS_EXPERIMENT_SERIES_INFO, EIS_EXPERIMENT_FREQUENCY_TOLERANCE
 
 if TYPE_CHECKING:
     from ..analysis.analysis import Analysis
-    from ..analysis.data_quality import DataQuality
 
 
-class Experiment:
+class Experiment(SampleContainer):
     Series_Info = EIS_EXPERIMENT_SERIES_INFO
 
-    __Experiment_Names_In_Use = set()
+    _Container_Name_Prefix = "Experiment"
 
     def __init__(self, name: str, color: None | str = None) -> None:
-        self._palette = NEIColorPalette(color_name=color)
-
-        # Naming
-        self.__name = ""
-        self.name = name
+        super().__init__(name, color)
 
         # Main data storage
         self.__samples: list[Sample] = []
         self.__freqs: list[float] = []
-        self.__data: pd.DataFrame | None = None
+        self._data: pd.DataFrame | None = None
 
         # Resisitve Shift Correction
         self.__resistive_shift = 0.0
 
         # Analysis related attributes
-        self.__analysis: Analysis | None = None  # Lazy creation
-        self.__quality: DataQuality | None = None
+        # self.__analysis: Analysis | None = None  # Lazy creation
+        self.__analysis: Analysis | None = None
+
+    def _add_metadata_to_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        metadata = self.data[self.data.loc[:, "Sample Name":].columns].drop_duplicates()
+        extended_data = pd.merge(
+            left=data, right=metadata, how="left", on="Sample Name"
+        )
+
+        if len(extended_data) != len(data):
+            raise ValueError(
+                "Error during adding of metadata - must be not unique per sample!"
+            )
+        return extended_data
 
     @property
-    def _analysis(self) -> Analysis:
+    def analysis(self) -> Analysis:
         from ..analysis.analysis import Analysis  # Avoid circular import
 
         self.__analysis = self.__analysis or Analysis(self)
         return self.__analysis
-
-    @property
-    def quality(self) -> DataQuality:
-        from ..analysis.data_quality import DataQuality  # Avoid circular import
-
-        self.__quality = self.__quality or DataQuality(self)
-        return self.__quality
-
-    @property
-    def name(self) -> str:
-        return self.__name
-
-    @name.setter
-    def name(self, new_name: str | None) -> None:
-        new_name = new_name or f"Experiment #{id(self)}"
-
-        if new_name in self.__Experiment_Names_In_Use:
-            raise ValueError(
-                f"Experiment name '{new_name}' is already in use. Please choose a unique name."
-            )
-        else:
-            self.__Experiment_Names_In_Use.add(new_name)
-            self.__Experiment_Names_In_Use.discard(self.__name)
-            self.__name = new_name
 
     @property
     def mean_resistance_offset(self) -> float:
@@ -80,11 +63,11 @@ class Experiment:
 
     @property
     def data(self) -> pd.DataFrame:
-        if self.__data is None:
+        if self._data is None:
             self.__reload_data()
-        if self.__data is None:
+        if self._data is None:
             raise ValueError("Data could not be loaded.")
-        return self.__data
+        return self._data
 
     def load(
         self,
@@ -116,10 +99,8 @@ class Experiment:
 
             # Align frequencies
             sample.data["Frequency"] = self.__freqs
-            sample.data["Experiment Name"] = self.__name
-            sample.data["Palette"] = self._palette
-            self.__generate_groups(sample, grouping or {})
 
+            self._apply_container_groups(sample.data, sample._name_parts, grouping)
             self.__samples.append(sample)
 
         # Reload new data into main DataFrame
@@ -166,35 +147,12 @@ class Experiment:
         self.__resistive_shift = shift_value
         return self
 
-    def __generate_groups(
-        self, sample: Sample, grouping: dict[str, str | Callable]
-    ) -> None:
-        """Apply grouping labels to experiment data.
-
-        Args:
-            sample: Sample to group
-            grouping: Dict mapping group names to values or callables (e.g. SampleLabelGenerator!)
-        """
-        for group_key, g in grouping.items():
-            if isinstance(g, str):
-                sample.data[group_key] = g
-            elif callable(g):
-                sample.data[group_key] = g(sample._name_parts)
-            else:
-                raise ValueError(
-                    "Grouping values must be either strings or callable functions."
-                )
-
     def __reload_data(self) -> None:
-        self.__data = pd.concat(
+        self._data = pd.concat(
             [sample.data for sample in self.__samples], ignore_index=True
         )
-        self.__data["Offset-Corrected Resistance"] = (
-            self.__data["Offset-Corrected Resistance"]
+        self._data["Offset-Corrected Resistance"] = (
+            self._data["Offset-Corrected Resistance"]
             + self.mean_resistance_offset
             + self.__resistive_shift
         )
-
-    @classmethod
-    def Reset_Tracked_Objects(cls) -> None:
-        cls.__Experiment_Names_In_Use = set()

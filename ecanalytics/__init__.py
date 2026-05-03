@@ -1,11 +1,10 @@
 # Data Classes
 from .src.data.experiment import Experiment
+from .src.data.sample_container import SampleContainer
 
 
 # Plotting
-from .src.plot.plot import plot, bode, fresponse
-from .src.plot.nyquist import nyquist
-from .src.plot.residuals import residuals, residual_distr
+from .src import plot
 
 # Utilities
 from .src.data.sample_label_generator import SampleLabelGenerator
@@ -16,13 +15,9 @@ from .src.settings import _reset as reset
 __all__ = [
     "Experiment",
     "plot",
-    "bode",
-    "fresponse",
-    "nyquist",
     "SampleLabelGenerator",
     "NEIColorPalette",
     "set",
     "reset",
-    "residuals",
-    "residual_distr",
+    "SampleContainer",
 ]

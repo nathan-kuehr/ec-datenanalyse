@@ -32,6 +32,8 @@ class CovarianceVisualization:
         if self.__n_samples > 1:
             covs = grouped.cov().to_numpy().reshape(self.__n_freqs, 2, 2)  # pyright: ignore
 
+            covs += 1e-12 * np.eye(2)  # avoid singular matrices
+
             # Scale w/ appropriate factor to represent desired CI
             self.__covs = covs * self.__cov_scaling_factor_from_errorbar_spec(kwargs)
         else:

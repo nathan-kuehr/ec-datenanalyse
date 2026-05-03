@@ -7,14 +7,18 @@ from matplotlib.axes import Axes
 
 import os
 
+from . import core
+
 
 class PlotResult:
     def __init__(self, title: str | None, figure: Figure, **kwargs):
         self.__figure = figure
         self.title = title
 
-        self.__saved = kwargs.get("noSave", False)
+        self.__saved = kwargs.get("no_save", False)
         self.__settings = Settings(**kwargs)
+
+        self.__meta = dict()
 
         # Save References in case of matplotlib shutdown before saving
         self.__savefig_func = self.__figure.savefig
@@ -67,15 +71,13 @@ class PlotResult:
         if not self.__settings.show_on_save:
             plt.close(self.__figure)
 
-    @classmethod
-    def Clean_Kwargs(cls, kwargs: dict):
-        """Cleans the kwargs dictionary by removing plot result related keys.
+    def add_meta(self, new_metadata: dict[str, Any]) -> PlotResult:
+        self.__meta |= new_metadata
+        return self
 
-        Args:
-            kwargs: Original kwargs dictionary
+    def get_meta(self, key: str) -> Any:
+        return self.__meta[key]
 
-        Returns:
-            Cleaned kwargs dictionary
-        """
-        keys_to_remove = {"noSave"}
-        return {k: v for k, v in kwargs.items() if k not in keys_to_remove}
+    @staticmethod
+    def Clean_Kwargs(kwargs: dict):
+        return core._clean_args(kwargs, ["no_save"])

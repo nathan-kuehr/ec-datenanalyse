@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import hex2color, rgb2hex
 from scipy.interpolate import interp1d
 
-from .config import SNS_LINEPLOT_DEFAULT_SETTINGS, FIGURE_SETTINGS
+from .config import DEFAULT_LINEPLOT_SETTINGS, FIGURE_SETTINGS
 
 
 class NEIColorPalette:
@@ -77,6 +77,13 @@ class NEIColorPalette:
         interpolated_rgb_shades = f(np.linspace(0, len(shades) - 1, n_shades))
         return [rgb2hex(s) for s in interpolated_rgb_shades]
 
+    @property
+    def name(self) -> str:
+        for name, hex in self.__Color_Names.items():
+            if hex == self.__color:
+                return name
+        raise ValueError("Color not found in color names mapping.")
+
     @classmethod
     def Reset_Colors_In_Use(cls) -> None:
         cls.__Colors_In_Use = np.zeros_like(cls.__Colors, dtype=bool)
@@ -122,7 +129,7 @@ class NEIColorPalette:
         # Concat all dfs together
         df = pd.concat(data, ignore_index=True)
 
-        args = SNS_LINEPLOT_DEFAULT_SETTINGS | {
+        args = DEFAULT_LINEPLOT_SETTINGS | {
             "data": df,
             "x": "x",
             "y": "y",
