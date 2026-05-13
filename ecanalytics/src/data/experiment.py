@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import copy
 
 import pandas as pd
 import numpy as np
 
+from copy import deepcopy
 from typing import TYPE_CHECKING
 from collections.abc import Callable
 
@@ -24,50 +27,37 @@ class Experiment(SampleContainer):
         super().__init__(name, color)
 
         # Main data storage
-        self.__samples: list[Sample] = []
-        self.__freqs: list[float] = []
+        self._samples: list[Sample] = []
+        self._freqs: list[float] = []
         self._data: pd.DataFrame | None = None
 
         # Resisitve Shift Correction
-        self.__resistive_shift = 0.0
+        self._resistive_shift = 0.0
 
         # Analysis related attributes
-        # self.__analysis: Analysis | None = None  # Lazy creation
-        self.__analysis: Analysis | None = None
-
-    def _add_metadata_to_data(self, data: pd.DataFrame) -> pd.DataFrame:
-        metadata = self.data[self.data.loc[:, "Sample Name":].columns].drop_duplicates()
-        extended_data = pd.merge(
-            left=data, right=metadata, how="left", on="Sample Name"
-        )
-
-        if len(extended_data) != len(data):
-            raise ValueError(
-                "Error during adding of metadata - must be not unique per sample!"
-            )
-        return extended_data
-
-    @property
-    def analysis(self) -> Analysis:
-        from ..analysis.analysis import Analysis  # Avoid circular import
-
-        self.__analysis = self.__analysis or Analysis(self)
-        return self.__analysis
+        self._analysis: Analysis | None = None 
 
     @property
     def mean_resistance_offset(self) -> float:
         """Get the mean resistance offset across all samples."""
-        if not self.__samples:
+        if not self._samples:
             return 0.0
-        return float(np.mean([sample.resistance_offset for sample in self.__samples]))
+        return float(np.mean([sample.resistance_offset for sample in self._samples]))
 
     @property
     def data(self) -> pd.DataFrame:
         if self._data is None:
-            self.__reload_data()
+            self._reload_data()
         if self._data is None:
             raise ValueError("Data could not be loaded.")
         return self._data
+    
+    @property
+    def analysis(self) -> Analysis:
+        from ..analysis.analysis import Analysis
+        if self._analysis is None:
+            self._analysis = Analysis(self)
+        return self._analysis
 
     def load(
         self,
@@ -84,13 +74,13 @@ class Experiment(SampleContainer):
             return self
 
         # Set up frequency data if first addition
-        self.__freqs = self.__freqs or new_samples[0].data["Frequency"].tolist()
+        self._freqs = self._freqs or new_samples[0].data["Frequency"].tolist()
 
         for sample in new_samples:
             # Verify all data has same frequency points within tolerance
             if not np.allclose(
                 sample.data["Frequency"].to_numpy(),
-                self.__freqs,
+                self._freqs,
                 rtol=EIS_EXPERIMENT_FREQUENCY_TOLERANCE,
             ):
                 raise ValueError(
@@ -98,33 +88,33 @@ class Experiment(SampleContainer):
                 )
 
             # Align frequencies
-            sample.data["Frequency"] = self.__freqs
+            sample.data["Frequency"] = self._freqs
 
             self._apply_container_groups(sample.data, sample._name_parts, grouping)
-            self.__samples.append(sample)
+            self._samples.append(sample)
 
         # Reload new data into main DataFrame
-        self.__reload_data()
+        self._reload_data()
 
         return self
 
     def extract_subexp(
         self, group: str, value: str, name: str | None = None, color: str | None = None
     ) -> "Experiment":
-        if len(self.__samples):
+        if len(self._samples):
             raise ValueError("No samples have been loaded yet!")
-        elif group not in set(self.__samples[0].data.columns):
+        elif group not in set(self._samples[0].data.columns):
             raise KeyError(f"No group with the name '{group}' exists!")
 
         subexp = Experiment(name or (self.__name + " - " + value), color)
 
-        subexp.__samples = [
+        subexp._samples = [
             copy.deepcopy(s)
-            for s in self.__samples
+            for s in self._samples
             if s.data[group].unique()[0] == value
         ]
 
-        for sample in subexp.__samples:
+        for sample in subexp._samples:
             sample.data["Experiment Name"] = subexp.name
             sample.data["Palette"] = subexp._palette
 
@@ -138,21 +128,42 @@ class Experiment(SampleContainer):
         def keep(sample: Sample) -> bool:
             return sample._name not in to_remove and sample._filename not in to_remove
 
-        self.__samples = [sample for sample in self.__samples if keep(sample)]
-        self.__reload_data()
+        self._samples = [sample for sample in self._samples if keep(sample)]
+        self._reload_data()
         return self
 
     def shift(self, shift_value: float) -> "Experiment":
         """Apply a resistive shift correction to the experiment data."""
-        self.__resistive_shift = shift_value
+        self._resistive_shift = shift_value
         return self
-
-    def __reload_data(self) -> None:
+    
+    def phantom(self, new_data: None | pd.DataFrame) -> Experiment:
+        p = deepcopy(self) 
+        p._samples = []
+        p._freqs = []
+        p._data = new_data
+        p._analysis = None
+        p._reload_data = lambda: None
+        return p
+        
+    def _reload_data(self) -> None:
         self._data = pd.concat(
-            [sample.data for sample in self.__samples], ignore_index=True
+            [sample.data for sample in self._samples], ignore_index=True
         )
         self._data["Offset-Corrected Resistance"] = (
             self._data["Offset-Corrected Resistance"]
             + self.mean_resistance_offset
-            + self.__resistive_shift
+            + self._resistive_shift
         )
+
+    def _add_metadata_to_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        metadata = self.data[self.data.loc[:, "Sample Name":].columns].drop_duplicates()
+        extended_data = pd.merge(
+            left=data, right=metadata, how="left", on="Sample Name"
+        )
+
+        if len(extended_data) != len(data):
+            raise ValueError(
+                "Error during adding of metadata - must be not unique per sample!"
+            )
+        return extended_data
