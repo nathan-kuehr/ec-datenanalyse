@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import pyimpspec
 
 import numpy as np
 import pandas as pd
 
 from . import parallel
+from .kkt import _call_argument_parser
 from .payloads import ImpedancePayload, DRTPayload
 from ..data.experiment import Experiment
 
 
 @parallel.Cache.cache
-def _cached_drt(payload: ImpedancePayload, kwargs: dict) -> DRTPayload:
+def _cached_drt(payload: ImpedancePayload, **kwargs) -> DRTPayload:
     drt = pyimpspec.calculate_drt(
         data=pyimpspec.DataSet(payload.frequencies, payload.impedances), **kwargs
     )
@@ -62,8 +65,7 @@ class DRT:
 
     def __call__(self, *args, **kwargs) -> None:
         data = self._root.data
-
-        sample_names = data["Sample Name"].unique()
+        sample_names = list(data["Sample Name"].unique())
 
         #
         Default_Calculation_Args = {
@@ -71,41 +73,19 @@ class DRT:
             "method": "tr-nnls",
         }
 
-        # Count of arguments
-        nargs, nkwargs = len(args), len(kwargs)
-
-        # Prepare the args for each sample
-        if nargs > 0 and nkwargs == 0:
-            if nargs > 1:
-                raise ValueError(
-                    f"Only one positional argument allowed, but {nargs} were given."
-                )
-            elif not isinstance(args[0], dict):
-                raise ValueError(
-                    "Please provide a dictionary mapping the sample names to the parameters to apply for the DRT calculation."
-                )
-            argument_list = [
-                Default_Calculation_Args | args[0].get(name, {})
-                for name in sample_names
-            ]
-        elif nkwargs >= 0 and nargs == 0:
-            argument_list = [(Default_Calculation_Args | kwargs) for _ in sample_names]
-        else:
-            raise ValueError(
-                "Please provide either only positional or only keyword arguments, not both."
-            )
+        args_list = _call_argument_parser(args, kwargs, Default_Calculation_Args, sample_names, "DRT")
 
         # Prepare the input
         freqs = data["Frequency"].unique()
-        masks = [freqs > args.pop("cutoff_frequency") for args in argument_list]
+        masks = [freqs > args.pop("cutoff_frequency") for args in args_list]
         input_list = ImpedancePayload.From_Data(data, masks)
 
         # Run the parallelized DRT calculation
         payloads: list[DRTPayload] = parallel.multiprocess(
-            method=DRT._Calculate_Single_DRT,
+            method=_cached_drt,
             input=input_list,
             tqdm_note=f"Calculating the DRT for EIS Experiment '{self._root.name}'",
-            args=argument_list,
+            args=args_list,
         )
 
         # Post process the payloads into data frames
@@ -131,6 +111,15 @@ class DRT:
         # Add metadata
         self._data = self._root._add_metadata_to_data(drt_df)
         self._peak_data = self._root._add_metadata_to_data(peak_df)
+    
+    def manual_peak_correct(self, name: str, tau: float, peak_info: list[float]) -> DRT:
+        mask = self.peak_data["Sample Name"] == name
+        target = (self.peak_data.loc[mask, "Log. Position"] - np.log10(tau)).abs().idxmin()
+        
+        assert len(peak_info) == 5
+        self.peak_data.iloc[target, 0:5] = peak_info
+
+        return self
 
     def peak_select(self, target_tau: list[float]) -> pd.DataFrame:
         # Length
