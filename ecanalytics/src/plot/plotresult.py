@@ -74,9 +74,12 @@ class PlotResult:
     def add_meta(self, new_metadata: dict[str, Any]) -> PlotResult:
         self.__meta |= new_metadata
         return self
+    
+    def has_meta(self, key: str) -> bool:
+        return key in self.__meta
 
-    def get_meta(self, key: str) -> Any:
-        return self.__meta[key]
+    def get_meta(self, key: str) -> Any | None:
+        return self.__meta.get(key)
 
     @staticmethod
     def Clean_Kwargs(kwargs: dict):

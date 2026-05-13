@@ -2,30 +2,46 @@ import pandas as pd
 
 from matplotlib.figure import Figure
 from matplotlib import pyplot as plt
+from typing import Callable
 
 from . import core
 from ..data.experiment import Experiment
 from .plotresult import PlotResult
 from ..config import FIGURE_SETTINGS
 
+def _combine_experiment_data(exps: Experiment | list[Experiment], *extrs: Callable[[Experiment], pd.DataFrame], kwargs: dict) -> pd.DataFrame | list[pd.DataFrame]:
+    # Listify
+    if isinstance(exps, Experiment):
+        exps = [exps]
+    elif isinstance(exps, list):
+        if not exps:
+            raise ValueError("No experimental data passed!")
+    else:
+        raise TypeError("Unsupported data type passed!")
+    
+    # Prepare the transform
+    def transform(data: pd.DataFrame):
+        data[diff_col] = data["Experiment Name"] + " - " + data[diff_col].astype(str)
 
-def _combine_data_frames(data: list[Experiment], kwargs: dict) -> pd.DataFrame:
-    if len(data) == 0:
-        raise ValueError("Data list is empty.")
-
-    combined = pd.concat([exp.data for exp in data], ignore_index=True)
-
-    if len({exp.name for exp in data}) > 1:
-        if (hue_group := kwargs.get("hue", None)) is not None:
-            # Multiple data sets and hue differentiation
-            combined[hue_group] = (
-                combined["Experiment Name"] + " - " + combined[hue_group]
-            )
-        else:
+    # Add differentiators 
+    do_transform = False
+    if len(exps) > 1:
+        diff_col = kwargs.get("hue") or kwargs.get("tile")
+        if diff_col is None:
             kwargs["hue"] = "Experiment Name"
+        else:
+            do_transform = diff_col != "Experiment Name"
+    
+    combined = []
+    for extr in extrs:
+        df = pd.concat([extr(exp) for exp in exps], axis=0, ignore_index=True)
+        
+        if do_transform:
+            transform(df)
 
-    return combined
-
+        combined.append(df)
+    
+    return combined[0] if len(extrs) == 1 else combined
 
 def plot(
     data: Experiment | list[Experiment],
@@ -34,30 +50,14 @@ def plot(
     title: str | None = None,
     **kwargs,
 ) -> PlotResult:
-    if isinstance(data, Experiment):
-        return core.lineplot(data.data, x, y, title, Experiment.Series_Info, **kwargs)
-    elif isinstance(data, list):
-        return core.lineplot(
-            _combine_data_frames(data, kwargs),
-            x,
-            y,
-            title,
-            Experiment.Series_Info,
-            **kwargs,
-        )
-    else:
-        raise TypeError("Unsupported data type passed!")
+    df = _combine_experiment_data(data, lambda x: x.data, kwargs=kwargs)
+    return core.lineplot(df, x, y, title, Experiment.Series_Info, **kwargs)
 
 
 def bode(
     data: Experiment | list[Experiment], title: str | None = None, **kwargs
 ) -> PlotResult:
-    if isinstance(data, Experiment):
-        df = data.data
-    elif isinstance(data, list):
-        df = _combine_data_frames(data, kwargs)
-    else:
-        raise TypeError("Unsupported data type passed!")
+    df = _combine_experiment_data(data, lambda x: x.data, kwargs=kwargs)
 
     config = {"data": df, "x": "Frequency", "no_save": True}
 
