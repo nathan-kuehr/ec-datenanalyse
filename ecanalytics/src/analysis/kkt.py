@@ -9,15 +9,35 @@ from ..data.experiment import Experiment
 
 
 @parallel.Cache.cache
-def _cached_kramers_kronig_test(
-    data: ImpedancePayload, kwargs: dict
-) -> KramersKronigPayload:
-    ds = pyimpspec.DataSet(data.frequencies, data.impedances)
-    kkt_result = pyimpspec.perform_kramers_kronig_test(ds, **kwargs)
+def _cached_kramers_kronig_test(payload: ImpedancePayload, kwargs: dict) -> KramersKronigPayload:
+    kkt = pyimpspec.perform_kramers_kronig_test(
+        data=pyimpspec.DataSet(payload.frequencies, payload.impedances), **kwargs
+    )
     return KramersKronigPayload(
-        kkt_result.frequencies, kkt_result.residuals * 100, data.sample_name
+        kkt.frequencies, kkt.residuals * 100, payload.sample_name
     )
 
+def _call_argument_parser(args: tuple, kwargs: dict, default: dict, sample_names: list[str], name: str = "") -> list:
+    # Count of arguments
+    nargs, nkwargs = len(args), len(kwargs)
+
+    # Prepare the args for each sample
+    if nargs > 0 and nkwargs == 0:
+        if nargs > 1:
+            raise ValueError(
+                f"Only one positional argument allowed, but {nargs} were given."
+            )
+        elif not isinstance(args[0], dict):
+            raise ValueError(
+                f"Please provide a dictionary mapping the sample names to the parameters to apply for the {name} calculation."
+            )
+        return [default | args[0].get(name, {}) for name in sample_names]
+    elif nkwargs >= 0 and nargs == 0:
+        return [(default | kwargs) for _ in sample_names]
+    else:
+        raise ValueError(
+            "Please provide either only positional or only keyword arguments, not both."
+        )
 
 class KKT:
     def __init__(self, root: Experiment) -> None:
@@ -34,35 +54,13 @@ class KKT:
 
     def __call__(self, *args, **kwargs):
         data = self._root.data
-
-        sample_names = data["Sample Name"].unique()
+        sample_names = list(data["Sample Name"].unique())
 
         #
         Default_Calculation_Args = {"test": "complex"}
 
-        # Count of arguments
-        nargs, nkwargs = len(args), len(kwargs)
-
         # Prepare the args for each sample
-        if nargs > 0 and nkwargs == 0:
-            if nargs > 1:
-                raise ValueError(
-                    f"Only one positional argument allowed, but {nargs} were given."
-                )
-            elif not isinstance(args[0], dict):
-                raise ValueError(
-                    "Please provide a dictionary mapping the sample names to the parameters to apply for the KKT calculation."
-                )
-            argument_list = [
-                Default_Calculation_Args | args[0].get(name, {})
-                for name in sample_names
-            ]
-        elif nkwargs >= 0 and nargs == 0:
-            argument_list = [(Default_Calculation_Args | kwargs) for _ in sample_names]
-        else:
-            raise ValueError(
-                "Please provide either only positional or only keyword arguments, not both."
-            )
+        args_list = _call_argument_parser(args, kwargs, Default_Calculation_Args, sample_names, "KKT")
 
         # Find frequencies w/ inductive behaviour & mask them
         ind_freqs = data[data["Neg. Reactance"] < 0]["Frequency"].unique()
@@ -70,11 +68,11 @@ class KKT:
         input_list = ImpedancePayload.From_Data(data, masks)
 
         # Run the parallelized KKT calculation
-        payloads = parallel.multiprocess(
-            method=self._Calculate_Single_KKT,
+        payloads: list[KramersKronigPayload] = parallel.multiprocess(
+            method=_cached_kramers_kronig_test,
             input=input_list,
             tqdm_note=f"Calculating Kramers-Kronig Tests for EIS Experiment '{self._root.name}'",
-            args=argument_list,
+            args=args_list,
         )
 
         dfs = []
