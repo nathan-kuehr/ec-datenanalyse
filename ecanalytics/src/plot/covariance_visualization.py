@@ -11,7 +11,7 @@ from scipy.stats import chi2
 from shapely.geometry import MultiPoint
 from shapely.ops import unary_union
 
-from ..analysis import parallel
+from .. import parallel
 from ..config import COVVIS_ANGLE_STEPS, COVVIS_INTERPOLATION_POINTS
 
 
