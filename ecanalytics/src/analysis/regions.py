@@ -29,14 +29,14 @@ class Regions:
     def analyze_phase(self, kink_min_phase: float = -60, artefact_min_phase: float = -10):
         freqs = self._root.data["Frequency"].unique()
 
-        grouped = self._root.data.groupby("Sample Name")
-        R = np.hstack([g["Offset-Corrected Resistance"].to_numpy() for _, g in grouped])
-        X = -np.hstack([g["Neg. Reactance"].to_numpy() for _, g in grouped])
+        grouped = self._root.data.groupby("Sample Name", sort=False)
+        R = np.column_stack([g["Offset-Corrected Resistance"].to_numpy() for _, g in grouped])
+        X = -np.column_stack([g["Neg. Reactance"].to_numpy() for _, g in grouped])
 
-        phases = np.arctan2(R, X)
+        phases = np.arctan2(X, R)
         smooth_phases = self._phase_smoothing(phases)
 
-        kink_idc, artefact_idc = []
+        kink_idc, artefact_idc = [], []
         for smooth in smooth_phases.T:
             peak_idc, _ = sig.find_peaks(smooth)
 
@@ -50,17 +50,25 @@ class Regions:
         kink_freqs = freqs[kink_idc]
         artefact_freqs = freqs[artefact_idc]
 
+        # Get masks based on the smoothed versions
         valid_mask = freqs[:, None] <= artefact_freqs[None, :]
         diffusive_mask = freqs[:, None] <= kink_freqs[None, :]
         kinetic_mask = ~diffusive_mask
 
+        diffusive_mask &= valid_mask
+        kinetic_mask &= valid_mask
+
+        # Masks based on the real data points
+        inductive_mask = X > 0
+        
         mask_dfs = []
-        for name in self._root.sample_names:
+        for i, name in enumerate(self._root.sample_names):
             mask_dfs.append(pd.DataFrame({
                 "Frequency": freqs,
-                "Diffusive Mask": diffusive_mask & valid_mask,
-                "Kinetic Mask": kinetic_mask & valid_mask,
-                "Valid Mask": valid_mask,
+                "Diffusive Mask": diffusive_mask[:, i],
+                "Kinetic Mask": kinetic_mask[:, i],
+                "Valid Mask": valid_mask[:, i],
+                "Inductive Mask":  inductive_mask[:, i],
                 "Sample Name": name
             }))
 
