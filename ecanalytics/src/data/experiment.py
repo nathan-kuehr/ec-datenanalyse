@@ -53,6 +53,10 @@ class Experiment(SampleContainer):
         return self._data
     
     @property
+    def sample_names(self):
+        return self.data["Sample Name"].unique()
+    
+    @property
     def analysis(self) -> Analysis:
         from ..analysis.analysis import Analysis
         if self._analysis is None:

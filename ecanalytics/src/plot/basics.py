@@ -59,7 +59,7 @@ def bode(
 ) -> PlotResult:
     df = _combine_experiment_data(data, lambda x: x.data, kwargs=kwargs)
 
-    config = {"data": df, "x": "Frequency", "no_save": True}
+    config = {"data": df, "x": "Frequency", "no_save": True, "series_info": Experiment.Series_Info}
 
     with plt.rc_context(FIGURE_SETTINGS):
         axes = kwargs.pop("ax", None) or plt.subplots(2, 1, sharex=True)[1]
@@ -76,7 +76,7 @@ def bode(
         plot_args = kwargs | config
 
         for ax, y, t in zip(axes, ["Impedance", "Phase"], ["Magnitude", "Phase"]):
-            plot(**plot_args, ax=ax, y=y, title=t)
+            core.lineplot(**plot_args, ax=ax, y=y, title=t)
 
     return PlotResult(title, fig, **core._clean_plot_args(kwargs))
 
