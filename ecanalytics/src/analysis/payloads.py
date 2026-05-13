@@ -46,3 +46,13 @@ class DRTPayload:
     gammas: np.ndarray
     peak_infos: list[dict]
     sample_name: str
+
+
+@dataclass
+class FitResultPayload:
+    frequencies: np.ndarray
+    impedances: np.ndarray
+    residuals: np.ndarray
+    parameters: dict[str, float]
+    cdc: str
+    sample_name: str
