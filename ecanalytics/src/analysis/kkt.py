@@ -3,7 +3,8 @@ import pyimpspec
 import numpy as np
 import pandas as pd
 
-from . import parallel
+from .. import parallel
+from ._args import call_argument_parser
 from .payloads import ImpedancePayload, KramersKronigPayload
 from ..data.experiment import Experiment
 
@@ -18,33 +19,6 @@ def _cached_kramers_kronig_test(
     return KramersKronigPayload(
         kkt.frequencies, kkt.residuals * 100, payload.sample_name
     )
-
-
-def _call_argument_parser(
-    args: tuple,
-    kwargs: dict,
-    default: dict,
-    sample_names: list[str],
-    name: str = "",
-) -> list:
-    nargs, nkwargs = len(args), len(kwargs)
-
-    if nargs > 0 and nkwargs == 0:
-        if nargs > 1:
-            raise ValueError(
-                f"Only one positional argument allowed, but {nargs} were given."
-            )
-        elif not isinstance(args[0], dict):
-            raise ValueError(
-                f"Please provide a dictionary mapping the sample names to the parameters to apply for the {name} calculation."
-            )
-        return [default | args[0].get(name, {}) for name in sample_names]
-    elif nkwargs >= 0 and nargs == 0:
-        return [(default | kwargs) for _ in sample_names]
-    else:
-        raise ValueError(
-            "Please provide either only positional or only keyword arguments, not both."
-        )
 
 
 class KKT:
@@ -65,7 +39,7 @@ class KKT:
         data = self._root.data
         sample_names = list(data["Sample Name"].unique())
 
-        args_list = _call_argument_parser(
+        args_list = call_argument_parser(
             args, kwargs, self._DEFAULT_CALCULATION_ARGS, sample_names, "KKT"
         )
 

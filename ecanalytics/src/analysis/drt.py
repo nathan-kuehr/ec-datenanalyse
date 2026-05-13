@@ -5,8 +5,8 @@ import pyimpspec
 import numpy as np
 import pandas as pd
 
-from . import parallel
-from .kkt import _call_argument_parser
+from .. import parallel
+from ._args import call_argument_parser
 from .payloads import ImpedancePayload, DRTPayload
 from ..data.experiment import Experiment
 
@@ -74,7 +74,7 @@ class DRT:
         data = self._root.data
         sample_names = list(data["Sample Name"].unique())
 
-        args_list = _call_argument_parser(
+        args_list = call_argument_parser(
             args, kwargs, self._DEFAULT_CALCULATION_ARGS, sample_names, "DRT"
         )
 

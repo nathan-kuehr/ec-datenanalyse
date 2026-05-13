@@ -10,8 +10,8 @@ from pyimpspec import Circuit, Series, Parallel, Resistor, WarburgOpen, Constant
 from scipy import stats, signal as sig
 from typing import Callable
 
-from . import parallel
-from .kkt import _call_argument_parser
+from .. import parallel
+from ._args import call_argument_parser
 from .payloads import ImpedancePayload, FitResultPayload
 from ..data.experiment import Experiment
 from ..config import (
@@ -228,7 +228,7 @@ class Fit:
         # Instructions
         instr_list = (recipe or FitRecipe())._to_worker_instructions(self)
 
-        args_list = _call_argument_parser(
+        args_list = call_argument_parser(
             args, kwargs, self._DEFAULT_CALCULATION_ARGS, sample_names, "DRT"
         )
         args_list = [
