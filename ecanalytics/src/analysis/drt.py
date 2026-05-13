@@ -45,6 +45,28 @@ def _peak_info(peak: pyimpspec.DRTPeak, tau_grid: np.ndarray) -> dict:
     }
 
 
+def evaluate_peak_curves(peak_data: pd.DataFrame, tau_grid: np.ndarray) -> np.ndarray:
+    nsamples = peak_data["Sample Name"].nunique()
+    npeaks = len(peak_data) // nsamples
+    ntau = len(tau_grid)
+
+    if npeaks * nsamples != len(peak_data):
+        raise ValueError("The passed peak data frame is not valid!")
+
+    cols = ["Log. Position", "Log. Sigma", "Alpha", "Max. Gamma"]
+    pos, sigma, alpha, gamma = peak_data[cols].to_numpy().T[:, :, None]
+
+    pos_grid = np.log10(tau_grid)[None, :]
+
+    # Skew-normal evaluation
+    dpos = pos_grid - pos
+    denom = 2 * sigma**2
+    num = (dpos * (1 + alpha * np.sign(dpos))) ** 2
+
+    sampled_peaks = gamma * np.exp(-num / denom)
+    return sampled_peaks.reshape((nsamples, npeaks, ntau))
+
+
 class DRT:
     _DEFAULT_CALCULATION_ARGS = {
         "cutoff_frequency": 15,  # Hz
@@ -66,16 +88,15 @@ class DRT:
     @property
     def peak_data(self) -> pd.DataFrame:
         if self._peak_data is None:
-            self.__call__()
-            assert self._peak_data is not None
+            self()
+        assert self._peak_data is not None
         return self._peak_data
 
     def __call__(self, *args, **kwargs) -> None:
         data = self._root.data
-        sample_names = list(data["Sample Name"].unique())
 
         args_list = call_argument_parser(
-            args, kwargs, self._DEFAULT_CALCULATION_ARGS, sample_names, "DRT"
+            args, kwargs, self._DEFAULT_CALCULATION_ARGS, self._root.sample_names, "DRT"
         )
 
         freqs = data["Frequency"].unique()
@@ -121,6 +142,7 @@ class DRT:
         return self
 
     def peak_select(self, target_tau: list[float]) -> pd.DataFrame:
+        """Return rows of peak_data closest (in log-tau) to each value in target_tau."""
         nselect = len(target_tau)
 
         selected_peak_rows = []
@@ -145,28 +167,3 @@ class DRT:
                 log_pos[peak_idx] = np.inf
 
         return pd.DataFrame(selected_peak_rows).reset_index(drop=True)
-
-    @staticmethod
-    def sample_peak_data(peak_data: pd.DataFrame, tau_grid: np.ndarray) -> np.ndarray:
-        nsamples = peak_data["Sample Name"].nunique()
-        npeaks = len(peak_data) // nsamples
-        ntau = len(tau_grid)
-
-        if npeaks * nsamples != len(peak_data):
-            raise ValueError("The passed peak data frame is not valid!")
-
-        cols = ["Log. Position", "Log. Sigma", "Alpha", "Max. Gamma"]
-        pos, sigma, alpha, gamma = peak_data[cols].to_numpy().T[:, :, None]
-
-        pos_grid = np.log10(tau_grid)[None, :]
-
-        # Skew normal evaluation
-        dpos = pos_grid - pos
-        denom = 2 * sigma**2
-        num = (dpos * (1 + alpha * np.sign(dpos))) ** 2
-
-        sampled_peaks = gamma * np.exp(-num / denom)
-        return sampled_peaks.reshape((nsamples, npeaks, ntau))
-
-    def sample_peaks(self, target_tau: list[float], tau_grid: np.ndarray) -> np.ndarray:
-        return self.sample_peak_data(self.peak_select(target_tau), tau_grid)

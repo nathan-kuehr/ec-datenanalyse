@@ -215,7 +215,7 @@ class Fit:
         **kwargs,
     ) -> None:
         data = self._root.data
-        sample_names = list(data["Sample Name"].unique())
+        sample_names = self._root.sample_names
 
         nsamples = len(sample_names)
 

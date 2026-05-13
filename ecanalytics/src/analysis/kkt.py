@@ -21,6 +21,50 @@ def _cached_kramers_kronig_test(
     )
 
 
+def compile_residual_stats(
+    data: pd.DataFrame, zero_centered: bool = False, pool: bool = False
+) -> np.ndarray:
+    """Computes RMS / std / correlation for residual data.
+
+    Returns an (nsamples, 4) array of (rms, std_real, std_imag, rho) — with nsamples=1 if pool=True.
+    """
+    flat_residuals = data[["Real Residual", "Imag. Residual"]].to_numpy()
+
+    nsamples = data["Sample Name"].nunique()
+    nfreqs = len(data) // nsamples
+
+    # If pooling, append the samples on the frequency axis to each other
+    shape = (1, nsamples * nfreqs, 2) if pool else (nsamples, nfreqs, 2)
+    residuals = np.reshape(flat_residuals, shape)
+
+    rms = np.sqrt(2 * np.mean(np.square(residuals), axis=(1, 2)))[:, None]
+
+    if not zero_centered:
+        delta_res = residuals - np.mean(residuals, axis=1, keepdims=True)
+    else:
+        delta_res = residuals
+
+    std = np.sqrt(np.mean(np.square(delta_res), axis=1))
+    cov = np.mean(np.prod(delta_res, axis=2), axis=1)
+
+    std_prod = std[:, 0] * std[:, 1]
+    rho = np.zeros_like(cov)
+    np.divide(cov, std_prod, out=rho, where=(std_prod != 0))
+
+    return np.hstack((rms, std, rho[:, None]))
+
+
+def as_component_data(data: pd.DataFrame) -> pd.DataFrame:
+    return data.rename(
+        columns={"Real Residual": "Real", "Imag. Residual": "Imaginary"}
+    ).melt(
+        id_vars=["Frequency", "Sample Name", "Palette"],
+        value_vars=["Real", "Imaginary"],
+        var_name="Component",
+        value_name="Residual",
+    )
+
+
 class KKT:
     _DEFAULT_CALCULATION_ARGS = {"test": "complex"}
 
@@ -37,7 +81,7 @@ class KKT:
 
     def __call__(self, *args, **kwargs) -> None:
         data = self._root.data
-        sample_names = list(data["Sample Name"].unique())
+        sample_names = self._root.sample_names
 
         args_list = call_argument_parser(
             args, kwargs, self._DEFAULT_CALCULATION_ARGS, sample_names, "KKT"
@@ -74,44 +118,4 @@ class KKT:
     def compile_stats(
         self, zero_centered: bool = True, pool: bool = False
     ) -> np.ndarray:
-        return self.compile_stats_data(self.data, zero_centered, pool)
-
-    @staticmethod
-    def compile_stats_data(
-        data: pd.DataFrame, zero_centered: bool = False, pool: bool = False
-    ) -> np.ndarray:
-        flat_residuals = data[["Real Residual", "Imag. Residual"]].to_numpy()
-
-        nsamples = data["Sample Name"].nunique()
-        nfreqs = len(data) // nsamples
-
-        # Reshape. If pooling, append the samples on the frequency axis to each other
-        shape = (1, nsamples * nfreqs, 2) if pool else (nsamples, nfreqs, 2)
-        residuals = np.reshape(flat_residuals, shape)
-
-        rms = np.sqrt(2 * np.mean(np.square(residuals), axis=(1, 2)))[:, None]
-
-        if not zero_centered:
-            delta_res = residuals - np.mean(residuals, axis=1, keepdims=True)
-        else:
-            delta_res = residuals
-
-        std = np.sqrt(np.mean(np.square(delta_res), axis=1))
-        cov = np.mean(np.prod(delta_res, axis=2), axis=1)
-
-        std_prod = std[:, 0] * std[:, 1]
-        rho = np.zeros_like(cov)
-        np.divide(cov, std_prod, out=rho, where=(std_prod != 0))
-
-        return np.hstack((rms, std, rho[:, None]))
-
-    @staticmethod
-    def as_component_data(data: pd.DataFrame) -> pd.DataFrame:
-        return data.rename(
-            columns={"Real Residual": "Real", "Imag. Residual": "Imaginary"}
-        ).melt(
-            id_vars=["Frequency", "Sample Name", "Palette"],
-            value_vars=["Real", "Imaginary"],
-            var_name="Component",
-            value_name="Residual",
-        )
+        return compile_residual_stats(self.data, zero_centered, pool)

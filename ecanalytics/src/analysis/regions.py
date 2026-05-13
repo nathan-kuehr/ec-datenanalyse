@@ -3,16 +3,17 @@ import pandas as pd
 
 from scipy import signal as sig
 
+from ._args import call_argument_parser
 from ..data.experiment import Experiment
 
 
-_DEFAULT_KINK_MIN_PHASE_DEG = -60
-_DEFAULT_ARTEFACT_MIN_PHASE_DEG = -10
 _DEFAULT_SAVGOL_WINDOW = 11
 _SAVGOL_POLYORDER = 3
 
 
 class Regions:
+    _DEFAULT_CALCULATION_ARGS = {"kink_min_phase": -60, "artefact_min_phase": -10}
+
     def __init__(self, root: Experiment) -> None:
         self._root = root
 
@@ -29,15 +30,15 @@ class Regions:
     @property
     def masks(self) -> pd.DataFrame:
         if self._masks is None:
-            self.analyze_phase()
-            assert self._masks is not None
+            self()
+        assert self._masks is not None
         return self._masks
 
-    def analyze_phase(
-        self,
-        kink_min_phase: float = _DEFAULT_KINK_MIN_PHASE_DEG,
-        artefact_min_phase: float = _DEFAULT_ARTEFACT_MIN_PHASE_DEG,
-    ) -> None:
+    def __call__(self, *args, **kwargs):
+        args_list = call_argument_parser(
+            args, kwargs, self._DEFAULT_CALCULATION_ARGS, self._root.sample_names, "Regions"
+        )
+
         freqs = self._root.data["Frequency"].unique()
 
         grouped = self._root.data.groupby("Sample Name", sort=False)
@@ -52,11 +53,11 @@ class Regions:
         smooth_phases = self._phase_smoothing(phases)
 
         kink_indices, artefact_indices = [], []
-        for smooth in smooth_phases.T:
+        for arg, smooth in zip(args_list, smooth_phases.T):
             peak_indices, _ = sig.find_peaks(smooth)
 
-            kink_indices.append(self._find_kink_idx(peak_indices, smooth, kink_min_phase))
-            artefact_indices.append(self._find_artefact_idx(peak_indices, smooth, artefact_min_phase))
+            kink_indices.append(self._find_kink_idx(peak_indices, smooth, arg["kink_min_phase"]))
+            artefact_indices.append(self._find_artefact_idx(peak_indices, smooth, arg["artefact_min_phase"]))
 
         kink_indices = np.array(kink_indices)
         artefact_indices = np.array(artefact_indices)
@@ -95,7 +96,7 @@ class Regions:
 
     @staticmethod
     def _find_artefact_idx(
-        peak_indices: np.ndarray, smooth: np.ndarray, min_phase: float = _DEFAULT_ARTEFACT_MIN_PHASE_DEG
+        peak_indices: np.ndarray, smooth: np.ndarray, min_phase: float
     ) -> int:
         # Mask where the phase enters the region close to zero
         mask = smooth > np.radians(min_phase)
@@ -109,7 +110,7 @@ class Regions:
 
     @staticmethod
     def _find_kink_idx(
-        peak_indices: np.ndarray, smooth: np.ndarray, min_phase: float = _DEFAULT_KINK_MIN_PHASE_DEG
+        peak_indices: np.ndarray, smooth: np.ndarray, min_phase: float
     ) -> int:
         mask = smooth > np.radians(min_phase)
 

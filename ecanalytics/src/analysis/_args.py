@@ -1,8 +1,10 @@
+from typing import Iterable
+
 def call_argument_parser(
     args: tuple,
     kwargs: dict,
     default: dict,
-    sample_names: list[str],
+    sample_names: Iterable[str],
     name: str = "",
 ) -> list:
     """Parses positional/keyword args for analysis-step calls.
