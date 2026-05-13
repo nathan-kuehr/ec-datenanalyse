@@ -1,9 +1,3 @@
-
-import numpy as np
-
-from copy import deepcopy
-
-
 from ..data.experiment import Experiment
 from ..config import DATA_QUALITY_SERIES_INFO
 
@@ -14,7 +8,7 @@ from .regions import Regions
 
 
 class Analysis:
-    Series_Info = DATA_QUALITY_SERIES_INFO
+    SERIES_INFO = DATA_QUALITY_SERIES_INFO
 
     def __init__(self, root: Experiment) -> None:
         self._root = root

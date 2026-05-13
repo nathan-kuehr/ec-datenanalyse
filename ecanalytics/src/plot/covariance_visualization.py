@@ -15,47 +15,55 @@ from ..analysis import parallel
 from ..config import COVVIS_ANGLE_STEPS, COVVIS_INTERPOLATION_POINTS
 
 
-# --- 1. GECACHTE BERECHNUNGSFUNKTION ---
-# Signatur exakt abgestimmt auf: method(sample, **arg)
-# freqs = sample (aus input)
-# x, y, factor, calc_hull = **arg (aus args)
-@parallel.Cache.cache
+# Epsilon added to the diagonal to keep covariance matrices invertible
+_SINGULARITY_EPSILON = 1e-12
+_DEGREES_PER_CIRCLE = 360
+_DEFAULT_ERRORBAR_SCALE = 95
+_CHI2_DOF = 2
+
+
+# Signature matched to parallel.multiprocess: method(sample, **arg).
+# Here `freqs` corresponds to the `sample` input; `x`, `y`, `factor`,
+# `calc_hull` come from `**arg`.
+@parallel.CACHE.cache
 def _cached_covariance_calculation(
     freqs: np.ndarray, x: np.ndarray, y: np.ndarray, factor: float, calc_hull: bool
-):
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | list | None]:
     data = pd.DataFrame({"f": freqs, "x": x, "y": y})
     grouped = data.groupby("f", sort=False)[["x", "y"]]
 
-    poss = grouped.mean().to_numpy()
+    positions = grouped.mean().to_numpy()
 
     nfreqs = data["f"].nunique()
     nsamples = len(data) // nfreqs
 
     if nsamples <= 1:
-        return poss, np.full((nfreqs, 2, 2), np.nan), None
+        return positions, np.full((nfreqs, 2, 2), np.nan), None
 
     covs = grouped.cov().to_numpy().reshape(nfreqs, 2, 2)
-    covs += 1e-12 * np.eye(2)  # Fallback gegen singuläre Matrizen
+    covs += _SINGULARITY_EPSILON * np.eye(2)  # Fallback against singular matrices
 
     covs *= factor
 
     visualization = (
-        CovarianceVisualization._Hull
+        CovarianceVisualization._hull
         if calc_hull
-        else CovarianceVisualization._Ellipse_Parameters
+        else CovarianceVisualization._ellipse_parameters
     )
-    return poss, covs, visualization(poss, covs)
+    return positions, covs, visualization(positions, covs)
 
 
-# --- 2. VISUALISIERUNGS- UND STEUERUNGSKLASSE ---
 class CovarianceVisualization:
-    _Theta = np.linspace(0, 2 * np.pi, 360 // COVVIS_ANGLE_STEPS)
-    _Z = np.stack((np.cos(_Theta), np.sin(_Theta)), axis=1)
+    _THETA = np.linspace(0, 2 * np.pi, _DEGREES_PER_CIRCLE // COVVIS_ANGLE_STEPS)
+    _UNIT_CIRCLE = np.stack((np.cos(_THETA), np.sin(_THETA)), axis=1)
 
     def __init__(
-        self, poss: np.ndarray, covs: np.ndarray, vis: np.ndarray | list | None
+        self,
+        positions: np.ndarray,
+        covs: np.ndarray,
+        vis: np.ndarray | list | None,
     ) -> None:
-        self.positions = poss
+        self.positions = positions
         self.covs = covs
 
         if isinstance(vis, np.ndarray):
@@ -69,9 +77,9 @@ class CovarianceVisualization:
             self.ellipses = None
 
     @staticmethod
-    def _Ellipse_Parameters(poss: np.ndarray, covs: np.ndarray) -> list:
+    def _ellipse_parameters(positions: np.ndarray, covs: np.ndarray) -> list:
         ellipses = []
-        for pos, cov in zip(poss, covs):
+        for pos, cov in zip(positions, covs):
             eigvals, eigvecs = np.linalg.eigh(cov)
             axes = 2 * np.sqrt(eigvals)
             angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
@@ -79,7 +87,7 @@ class CovarianceVisualization:
         return ellipses
 
     @staticmethod
-    def _Interp_Cov(covs: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    def _interp_cov(covs: np.ndarray, alpha: np.ndarray) -> np.ndarray:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="logm result may be inaccurate")
             log_covs = [logm(cov) for cov in covs]
@@ -87,18 +95,18 @@ class CovarianceVisualization:
             return np.array([expm(cov) for cov in interp_log_covs])
 
     @staticmethod
-    def _Hull(poss: np.ndarray, covs: np.ndarray) -> np.ndarray:
+    def _hull(positions: np.ndarray, covs: np.ndarray) -> np.ndarray:
         nfreqs = len(covs)
 
         alpha = np.linspace(
             0, nfreqs - 1, (nfreqs - 1) * COVVIS_INTERPOLATION_POINTS + 1
         )
-        interp_poss = interp1d(np.arange(nfreqs), poss, axis=0)(alpha)
-        interp_covs = CovarianceVisualization._Interp_Cov(covs, alpha)
+        interp_positions = interp1d(np.arange(nfreqs), positions, axis=0)(alpha)
+        interp_covs = CovarianceVisualization._interp_cov(covs, alpha)
 
-        L = np.linalg.cholesky(interp_covs)
-        Lz = np.einsum("nij,zj->nzi", L, CovarianceVisualization._Z)
-        x = Lz + interp_poss[:, None, :]
+        cholesky = np.linalg.cholesky(interp_covs)
+        scaled_unit_circle = np.einsum("nij,zj->nzi", cholesky, CovarianceVisualization._UNIT_CIRCLE)
+        x = scaled_unit_circle + interp_positions[:, None, :]
 
         pairs = [
             MultiPoint(np.vstack((x[i], x[i + 1]))).convex_hull
@@ -122,8 +130,8 @@ class CovarianceVisualization:
                 ax.add_patch(Ellipse(pos, width=a, height=b, angle=angle, **config))
 
     @staticmethod
-    def _cov_scaling_factor(errorbar: Any, n_samples: int) -> float:
-        measure, scale = ("se", 95)
+    def _cov_scaling_factor(errorbar: Any, nsamples: int) -> float:
+        measure, scale = ("se", _DEFAULT_ERRORBAR_SCALE)
 
         if isinstance(errorbar, tuple) and len(errorbar) == 2:
             measure, scale = errorbar
@@ -136,36 +144,35 @@ class CovarianceVisualization:
                 "Unsupported errorbar specification for parametric uncertainty visualization."
             )
 
-        factor = float(chi2.ppf(scale / 100, df=2))
+        factor = float(chi2.ppf(scale / 100, df=_CHI2_DOF))
 
         if measure == "sd":
             return factor
         elif measure == "se":
-            return factor / n_samples
+            return factor / nsamples
         else:
             raise ValueError(
                 "Unsupported errorbar specification for parametric uncertainty visualization."
             )
 
     @staticmethod
-    def Calculate_Covariances(
+    def calculate_covariances(
         groups: list[pd.DataFrame], kwargs: dict, calc_hull: bool = True
-    ):
+    ) -> list["CovarianceVisualization"]:
         x_col = kwargs["x"]
         y_col = kwargs["y"]
-        errorbar = kwargs.get("errorbar", ("se", 95))
+        errorbar = kwargs.get("errorbar", ("se", _DEFAULT_ERRORBAR_SCALE))
 
-        # 1. input-Liste: Enthält NUR das erste Argument (freqs)
+        # Inputs list: only contains the first argument (freqs)
         mp_inputs = []
 
-        # 2. args-Liste: Enthält die Dictionaries für die restlichen Argumente (**arg)
+        # Args list: contains dictionaries for the remaining arguments (**arg)
         mp_args = []
 
         for group in groups:
-            n_samples = group["Sample Name"].nunique()
-            factor = CovarianceVisualization._cov_scaling_factor(errorbar, n_samples)
+            nsamples = group["Sample Name"].nunique()
+            factor = CovarianceVisualization._cov_scaling_factor(errorbar, nsamples)
 
-            # Befüllen der exakt getrennten Parameterlisten
             mp_inputs.append(group["Frequency"].to_numpy())
 
             mp_args.append(
@@ -177,10 +184,9 @@ class CovarianceVisualization:
                 }
             )
 
-        # Aufruf exakt passend zur unveränderten 'multiprocess'-Logik
         raw_results = parallel.multiprocess(
             method=_cached_covariance_calculation,
-            input=mp_inputs,
+            inputs=mp_inputs,
             args=mp_args,
             tqdm_note="Calculating covariances...",
         )

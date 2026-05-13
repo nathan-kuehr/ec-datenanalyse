@@ -11,11 +11,11 @@ from .config import DEFAULT_LINEPLOT_SETTINGS, FIGURE_SETTINGS
 
 
 class NEIColorPalette:
-    __Colors = np.array(
+    _COLORS = np.array(
         ["#FF8000", "#DE173C", "#74035C", "#1159A6", "#27C1CF", "#197643"]
     )
 
-    __Color_Names = {
+    _COLOR_NAMES = {
         "orange": "#FF8000",
         "red": "#DE173C",
         "violett": "#74035C",
@@ -25,7 +25,7 @@ class NEIColorPalette:
     }
 
     # Mapping from main colors to their shades
-    __Shades = {
+    _SHADES = {
         "#FF8000": np.array(
             ["#ff8000", "#f14400", "#d00000", "#92100b", "#4e001c", "#370617"]
         ),
@@ -46,87 +46,81 @@ class NEIColorPalette:
         ),
     }
 
-    __Colors_In_Use = np.zeros_like(__Colors, dtype=bool)
+    _colors_in_use = np.zeros_like(_COLORS, dtype=bool)
 
     def __init__(self, color_name: None | str = None) -> None:
-        # Get color
         if color_name is None:
-            self.__color = self.__Next_Color()
+            self._color = self._next_color()
         else:
-            self.__color = self.__Color_Names[color_name]
-            self.__Colors_In_Use[np.where(self.__Colors == self.__color)[0]] = True
+            self._color = self._COLOR_NAMES[color_name]
+            self._colors_in_use[np.where(self._COLORS == self._color)[0]] = True
 
-    def shade(self, n_shades: int) -> list[str]:
-        if n_shades < 1:
-            raise ValueError("n_shades must be at least 1")
-        elif n_shades == 1:
-            return [self.__color]
+    def shade(self, nshades: int) -> list[str]:
+        if nshades < 1:
+            raise ValueError("nshades must be at least 1")
+        elif nshades == 1:
+            return [self._color]
 
-        # Get shades
-        shades = self.__Shades[self.__color]
+        shades = self._SHADES[self._color]
 
         # If not all shades needed, take out of the middle (avoid too bright / dark)
-        if n_shades <= len(shades):
-            d = len(shades) / (n_shades + 1)
-            vals = ((np.arange(n_shades) + 1) * d).astype(int)
-            return shades[vals].tolist()
+        if nshades <= len(shades):
+            d = len(shades) / (nshades + 1)
+            indices = ((np.arange(nshades) + 1) * d).astype(int)
+            return shades[indices].tolist()
 
         # More shades needed -> interpolate
         rgb_shades = np.array([hex2color(s) for s in shades])
         f = interp1d(np.arange(len(shades)), rgb_shades, axis=0, kind="linear")
-        interpolated_rgb_shades = f(np.linspace(0, len(shades) - 1, n_shades))
+        interpolated_rgb_shades = f(np.linspace(0, len(shades) - 1, nshades))
         return [rgb2hex(s) for s in interpolated_rgb_shades]
 
     @property
     def name(self) -> str:
-        for name, hex in self.__Color_Names.items():
-            if hex == self.__color:
+        for name, hex_code in self._COLOR_NAMES.items():
+            if hex_code == self._color:
                 return name
         raise ValueError("Color not found in color names mapping.")
 
     @classmethod
-    def Reset_Colors_In_Use(cls) -> None:
-        cls.__Colors_In_Use = np.zeros_like(cls.__Colors, dtype=bool)
+    def reset_colors_in_use(cls) -> None:
+        cls._colors_in_use = np.zeros_like(cls._COLORS, dtype=bool)
 
     @classmethod
-    def __Next_Color(cls) -> str:
-        available = np.where(~cls.__Colors_In_Use)[0]
+    def _next_color(cls) -> str:
+        available = np.where(~cls._colors_in_use)[0]
 
         if len(available) == 0:  # Reset
-            cls.Reset_Colors_In_Use()
-            return cls.__Next_Color()
+            cls.reset_colors_in_use()
+            return cls._next_color()
 
         idx = int(available[0])
 
-        cls.__Colors_In_Use[idx] = True
-        return cls.__Colors[idx]
+        cls._colors_in_use[idx] = True
+        return cls._COLORS[idx]
 
     @classmethod
-    def Showcase(cls):
-        # Function to draw
-        def parabole(x, k, d):
+    def showcase(cls) -> None:
+        def parabola(x: np.ndarray, k: float, d: float) -> np.ndarray:
             return k * (x**2) + d
 
-        # X data
         x = np.linspace(-2, 2, 21)
 
         data = []
         palette = []
 
-        # Flatten shade dict to (index of color, index of shade, shade) tupels
+        # Flatten shade dict to (color index, shade index, shade) tuples
         shade_iterator = (
-            (cidx, sidx, s)
-            for cidx, (_, v) in enumerate(cls.__Shades.items())
-            for sidx, s in enumerate(v)
+            (color_idx, shade_idx, shade)
+            for color_idx, (_, shade_array) in enumerate(cls._SHADES.items())
+            for shade_idx, shade in enumerate(shade_array)
         )
 
-        # Create y data and fill palette
-        for cidx, sidx, shade in shade_iterator:
-            y = parabole(x, 1 + sidx * 0.25, 5 * cidx)
+        for color_idx, shade_idx, shade in shade_iterator:
+            y = parabola(x, 1 + shade_idx * 0.25, 5 * color_idx)
             data.append(pd.DataFrame({"x": x, "y": y, "Shade": shade}))
             palette.append(shade)
 
-        # Concat all dfs together
         df = pd.concat(data, ignore_index=True)
 
         args = DEFAULT_LINEPLOT_SETTINGS | {

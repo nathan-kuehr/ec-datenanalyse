@@ -12,8 +12,7 @@ __all__ = [
     "bode",
     "fresponse",
     "PlotResult",
-    "kkt_plots",
     "residuals",
     "residual_distribution",
-    "fitted_parameters"
+    "fitted_parameters",
 ]

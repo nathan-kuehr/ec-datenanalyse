@@ -19,9 +19,9 @@ if TYPE_CHECKING:
 
 
 class Experiment(SampleContainer):
-    Series_Info = EIS_EXPERIMENT_SERIES_INFO
+    SERIES_INFO = EIS_EXPERIMENT_SERIES_INFO
 
-    _Container_Name_Prefix = "Experiment"
+    _CONTAINER_NAME_PREFIX = "Experiment"
 
     def __init__(self, name: str, color: None | str = None) -> None:
         super().__init__(name, color)
@@ -31,11 +31,11 @@ class Experiment(SampleContainer):
         self._freqs: list[float] = []
         self._data: pd.DataFrame | None = None
 
-        # Resisitve Shift Correction
+        # Resistive shift correction
         self._resistive_shift = 0.0
 
         # Analysis related attributes
-        self._analysis: Analysis | None = None 
+        self._analysis: Analysis | None = None
 
     @property
     def mean_resistance_offset(self) -> float:
@@ -51,11 +51,11 @@ class Experiment(SampleContainer):
         if self._data is None:
             raise ValueError("Data could not be loaded.")
         return self._data
-    
+
     @property
-    def sample_names(self):
+    def sample_names(self) -> np.ndarray:
         return self.data["Sample Name"].unique()
-    
+
     @property
     def analysis(self) -> Analysis:
         from ..analysis.analysis import Analysis
@@ -71,10 +71,10 @@ class Experiment(SampleContainer):
         """Load EIS experiments from a folder with optional grouping.
 
         Args:
-            folderPath: Path to folder containing EIS files
+            folder_path: Path to folder containing EIS files
             grouping: Dict mapping group names to values or callables applied to filename parts
         """
-        if not (new_samples := Sample.Batch_Load_Factory(folder_path)):
+        if not (new_samples := Sample.batch_load_factory(folder_path)):
             return self
 
         # Set up frequency data if first addition
@@ -97,7 +97,6 @@ class Experiment(SampleContainer):
             self._apply_container_groups(sample.data, sample._name_parts, grouping)
             self._samples.append(sample)
 
-        # Reload new data into main DataFrame
         self._reload_data()
 
         return self
@@ -105,12 +104,12 @@ class Experiment(SampleContainer):
     def extract_subexp(
         self, group: str, value: str, name: str | None = None, color: str | None = None
     ) -> "Experiment":
-        if len(self._samples):
+        if not self._samples:
             raise ValueError("No samples have been loaded yet!")
         elif group not in set(self._samples[0].data.columns):
             raise KeyError(f"No group with the name '{group}' exists!")
 
-        subexp = Experiment(name or (self.__name + " - " + value), color)
+        subexp = Experiment(name or (self._name + " - " + value), color)
 
         subexp._samples = [
             copy.deepcopy(s)
@@ -140,16 +139,16 @@ class Experiment(SampleContainer):
         """Apply a resistive shift correction to the experiment data."""
         self._resistive_shift = shift_value
         return self
-    
+
     def phantom(self, new_data: None | pd.DataFrame) -> Experiment:
-        p = deepcopy(self) 
+        p = deepcopy(self)
         p._samples = []
         p._freqs = []
         p._data = new_data
         p._analysis = None
         p._reload_data = lambda: None
         return p
-        
+
     def _reload_data(self) -> None:
         self._data = pd.concat(
             [sample.data for sample in self._samples], ignore_index=True

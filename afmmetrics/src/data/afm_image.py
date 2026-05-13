@@ -11,28 +11,28 @@ from io import StringIO
 from ..config import READIN_HEIGHT_BLOCK_REGEX, IMAGE_PADDING_FACTOR
 
 
+_HEIGHT_VALUE_TO_NM_FACTOR = 1e9
+
+
 class AFMImage:
-    _Height_Block_Regex = re.compile(READIN_HEIGHT_BLOCK_REGEX)
+    _HEIGHT_BLOCK_REGEX = re.compile(READIN_HEIGHT_BLOCK_REGEX)
 
     def __init__(self, path: str) -> None:
         self._path = path
         self._name = os.path.splitext(os.path.basename(path))[0]
 
-        # Load data
-        self._scan_size, self._data = self._Load_From_File(path)
+        self._scan_size, self._data = self._load_from_file(path)
 
-        # Prepare lazy loaded metadata
-        self._shape = None
-        self._channels = None
-        self._center = None
-        self._spatial_resolution = None
-        self._spectral_resolution = None
-        self._area = None
+        # Lazy-loaded metadata
+        self._shape: np.ndarray | None = None
+        self._channels: int | None = None
+        self._center: np.ndarray | None = None
+        self._spatial_resolution: np.ndarray | None = None
+        self._spectral_resolution: np.ndarray | None = None
+        self._area: float | None = None
 
-        # Current padding
         self._applied_padding = np.zeros(2)
 
-        # Mask
         self._mask: np.ndarray | None = None
 
     @property
@@ -106,7 +106,6 @@ class AFMImage:
         if padding_factor <= 1:
             raise ValueError("Padding factor must be larger than 1!")
 
-        # Insert now padded image & adapt scan size
         px, py = ((padding_factor - 1) * self.shape / 2).astype(int)
 
         padded.data = np.pad(self.data, pad_width=((px, px), (py, py)), mode="reflect")
@@ -122,7 +121,6 @@ class AFMImage:
 
         unpadded = self.copy()
 
-        # Insert cropped image & adapt scan size
         px, py = self._applied_padding
 
         unpadded.data = self.data[px:-px, py:-py]
@@ -159,22 +157,23 @@ class AFMImage:
         self._area = None
 
     @classmethod
-    def _Load_From_File(cls, path: str) -> tuple[np.ndarray, np.ndarray]:
+    def _load_from_file(cls, path: str) -> tuple[np.ndarray, np.ndarray]:
         with open(path, "r") as f:
             content = f.read()
 
-        if (match := re.search(cls._Height_Block_Regex, content)) is not None:
-            w, wu, h, hu, vu, raw_data = match.groups()
+        if (match := re.search(cls._HEIGHT_BLOCK_REGEX, content)) is not None:
+            w, w_unit, h, h_unit, value_unit, raw_data = match.groups()
 
-            # Currently, only μm sidelengths and m for the height are implemented
-            if (wu != "µm") or (hu != "µm") or (vu != "m"):
+            # Currently, only μm sidelengths and m for the height are supported
+            if (w_unit != "µm") or (h_unit != "µm") or (value_unit != "m"):
                 raise ValueError(
-                    f"Unsupported units: width unit '{wu}', height unit '{hu}', value unit '{vu}'!"
+                    f"Unsupported units: width unit '{w_unit}', height unit '{h_unit}', value unit '{value_unit}'!"
                 )
 
             data = np.loadtxt(StringIO(raw_data), np.float32)
 
-            return np.array([int(w), int(h)]), data * 1e9  # for conversion to μm / nm
+            # Multiply by 1e9 to convert from m to nm (paired with μm for the side lengths)
+            return np.array([int(w), int(h)]), data * _HEIGHT_VALUE_TO_NM_FACTOR
 
         raise ValueError("Unsupported format: no height block found!")
 

@@ -9,11 +9,11 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ecanalytics.src.config import FIGURE_SETTINGS, DEFAULT_LINEPLOT_SETTINGS
 from ecanalytics.src.plot.plotresult import PlotResult
-from ecanalytics.src.plot.basics import (
-    __prepare_groupby,
-    __active_groupby_cols,
-    plot,
-    __plot_clean_kwargs,
+from ecanalytics.src.plot.core import (
+    _prepare_groupby,
+    _active_groupby_cols,
+    _clean_plot_args,
+    lineplot,
 )
 
 
@@ -22,17 +22,25 @@ from ..data import ImageWorkflow, AFMImage, MicrogelImage, MicrogelStats
 from ..config import SCALEBAR_SETTINGS, SCALEBAR_COLOR_THRESHOLD, PROFILE_PLOT_FIGSIZE
 
 
-def __draw_in_axis(
+_SCALEBAR_WIDTH_DIVISOR = 5
+_SCALEBAR_HEIGHT_DIVISOR = 250
+_COLORBAR_TICK_MARGIN = 0.05
+_INTENSITY_NORM_EPSILON = 1e-12
+_PROFILE_BOTTOM_ROI = 0.85
+_GROUP_COLS_PALETTE = ["Palette"]
+
+
+def _draw_in_axis(
     axis: Axes, image: AFMImage, show_scalebar: bool = True, show_height: bool = True
 ) -> None:
     colormap._register()
     im = axis.imshow(image.data, cmap=(None if image.channels == 3 else "gwyddion"))
 
     if show_scalebar:
-        bar_width = image.scan_size[0] / 5
+        bar_width = image.scan_size[0] / _SCALEBAR_WIDTH_DIVISOR
         bar_width_px = image.um_to_px(bar_width)
 
-        bar_height = image.scan_size[1] / 250
+        bar_height = image.scan_size[1] / _SCALEBAR_HEIGHT_DIVISOR
         bar_height_px = image.um_to_px(bar_height)
 
         axis.add_artist(
@@ -41,7 +49,7 @@ def __draw_in_axis(
                 size=bar_width_px,
                 size_vertical=bar_height_px,
                 label=f"{bar_width:.1f} µm",
-                color=__scalebar_color(image.data),
+                color=_scalebar_color(image.data),
                 **SCALEBAR_SETTINGS,
             )
         )
@@ -55,20 +63,17 @@ def __draw_in_axis(
         phantom = divider.append_axes("right", size="25%", pad=0.0)
         phantom.axis("off")
 
-        # Add colorbar
         cbar = axis.figure.colorbar(im, cax=cax)
 
-        # Sometimes the extrema are not shown
-        # --> Add them to the cbar
+        # Sometimes the extrema are not shown -> Add them to the cbar
         vmin, vmax = im.get_clim()
         ticks = cbar.get_ticks()
 
         # Filter out ticks that are too close -> avoid overlap
-        margin = (vmax - vmin) * 0.05
+        margin = (vmax - vmin) * _COLORBAR_TICK_MARGIN
         ticks = [t for t in ticks if (vmin + margin) < t < (vmax - margin)]
         cbar.set_ticks(np.sort(ticks + [vmin, vmax]))
 
-        # Add label
         cbar.set_label("Height [nm]", rotation=270, labelpad=15)
 
         # Hide if RGB image
@@ -77,16 +82,16 @@ def __draw_in_axis(
     axis.axis("off")
 
 
-def __scalebar_color(data: np.ndarray) -> str:
+def _scalebar_color(data: np.ndarray) -> str:
     if len(data.shape) == 3:
         data = np.mean(data, axis=2)
 
-    slicing = tuple(slice(int(s * 0.85), s) for s in data.shape)
+    slicing = tuple(slice(int(s * _PROFILE_BOTTOM_ROI), s) for s in data.shape)
     roi = data[slicing]
 
     mean_intensity = (roi.mean() - data.min()) / (
-        data.max() - data.min() + 1e-12
-    )  # Avoid division by zero
+        data.max() - data.min() + _INTENSITY_NORM_EPSILON
+    )
 
     return "black" if mean_intensity > SCALEBAR_COLOR_THRESHOLD else "white"
 
@@ -95,7 +100,6 @@ def __scalebar_color(data: np.ndarray) -> str:
 def show_workflow(
     workflow: ImageWorkflow, title: str | None = None, ncols: int = 4, **kwargs
 ) -> PlotResult:
-    # Calculate number of rows needed for the given number of columns
     nrows = 1 + (len(workflow) - 1) // ncols
 
     with plt.rc_context(FIGURE_SETTINGS):
@@ -107,7 +111,6 @@ def show_workflow(
             layout="constrained",
         )
 
-        # Add title if provided
         if title is not None:
             fig.suptitle(
                 title,
@@ -118,14 +121,14 @@ def show_workflow(
         # Draw each workflow step in its own axis
         for ax, wf_step in zip(axes.flatten(), workflow):
             image, description = wf_step
-            __draw_in_axis(ax, image)
+            _draw_in_axis(ax, image)
             ax.set_title(description, fontsize=FIGURE_SETTINGS["legend.title_fontsize"])
 
     return PlotResult(title, fig, **kwargs)
 
 
 @show_workflow.register(MicrogelImage)
-def __show_workflow_mg_image(
+def _show_workflow_mg_image(
     mg_image: MicrogelImage, title: str | None = None, ncols: int = 4, **kwargs
 ) -> PlotResult:
     return show_workflow(mg_image._workflow, title, ncols, **kwargs)
@@ -142,7 +145,7 @@ def show(
         ax = kwargs.get("ax") or plt.figure().gca()
         fig = ax.figure
 
-        __draw_in_axis(ax, image, show_scalebar, show_height)
+        _draw_in_axis(ax, image, show_scalebar, show_height)
 
         if title is not None:
             ax.set_title(
@@ -155,11 +158,11 @@ def show(
 
 
 def microgel_profile(
-    image: MicrogelStats, title: str | None = None, angle=0.0, **kwargs
+    image: MicrogelStats, title: str | None = None, angle: float = 0.0, **kwargs
 ) -> PlotResult:
     dfs = []
 
-    for names, group in __prepare_groupby(image.micro_stats, kwargs, ["Palette"]):
+    for names, group in _prepare_groupby(image.micro_stats, kwargs, set(_GROUP_COLS_PALETTE)):
         mask = image.micro_stats.index.isin(group.index)
         profile = image.microgel_profile(mask, angle=angle, peak_pivot=True)
 
@@ -170,7 +173,7 @@ def microgel_profile(
 
         df = pd.DataFrame({"Distance": x_coords, "Height": profile})
 
-        for col, val in zip(__active_groupby_cols(kwargs, ["Palette"]), names):
+        for col, val in zip(_active_groupby_cols(image.micro_stats, kwargs, set(_GROUP_COLS_PALETTE)), names):
             df[col] = val
 
         dfs.append(df)
@@ -182,10 +185,10 @@ def microgel_profile(
         "y": "Height",
         "title": title,
         "no_save": True,
-        "series_info": MicrogelImage.Series_Info,
+        "series_info": MicrogelImage.SERIES_INFO,
     }
     kwargs = DEFAULT_LINEPLOT_SETTINGS | kwargs | config
-    with plot(data, **kwargs) as (fig, ax):
+    with lineplot(data, **kwargs) as (fig, ax):
         fig.set_size_inches(PROFILE_PLOT_FIGSIZE)
 
-    return PlotResult(title, fig, **__plot_clean_kwargs(kwargs))
+    return PlotResult(title, fig, **_clean_plot_args(kwargs))

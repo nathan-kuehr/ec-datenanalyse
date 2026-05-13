@@ -1,86 +1,88 @@
+from __future__ import annotations
+
+import os
 from datetime import datetime
-from ..settings import Settings
+from typing import Any
+
 import matplotlib.pyplot as plt
 
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 
-import os
-
+from ..settings import Settings
 from . import core
 
 
 class PlotResult:
-    def __init__(self, title: str | None, figure: Figure, **kwargs):
-        self.__figure = figure
+    def __init__(self, title: str | None, figure: Figure, **kwargs) -> None:
+        self._figure = figure
         self.title = title
 
-        self.__saved = kwargs.get("no_save", False)
-        self.__settings = Settings(**kwargs)
+        self._saved = kwargs.get("no_save", False)
+        self._settings = Settings(**kwargs)
 
-        self.__meta = dict()
+        self._meta: dict[str, Any] = {}
 
-        # Save References in case of matplotlib shutdown before saving
-        self.__savefig_func = self.__figure.savefig
-        self.__showfig_func = self.__figure.show
-        self.__global_show_fig_func = plt.show
+        # Save references in case of matplotlib shutdown before saving
+        self._savefig_func = self._figure.savefig
+        self._showfig_func = self._figure.show
+        self._global_show_fig_func = plt.show
 
     @property
     def title(self) -> str:
-        return self.__title
+        return self._title
 
     @title.setter
     def title(self, title: str | None) -> "PlotResult":
-        self.__title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot")
+        self._title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot")
         return self
 
     def show(self) -> "PlotResult":
-        self.__showfig_func()
-        self.__global_show_fig_func(block=True)
+        self._showfig_func()
+        self._global_show_fig_func(block=True)
         return self
 
     def save(self) -> "PlotResult":
-        for ext in self.__settings.export_formats:
+        for ext in self._settings.export_formats:
             export_path = os.path.join(
-                self.__settings.output_folder, f"{self.__title}.{ext}"
+                self._settings.output_folder, f"{self._title}.{ext}"
             )
 
             if ext == "png":
-                self.__savefig_func(export_path, dpi=self.__settings.dpi)
+                self._savefig_func(export_path, dpi=self._settings.dpi)
             else:
-                self.__savefig_func(export_path)
+                self._savefig_func(export_path)
 
-        self.__saved = True
+        self._saved = True
         return self
 
-    def __cond_save(self) -> None:
-        if not self.__saved:
+    def _cond_save(self) -> None:
+        if not self._saved:
             self.save()
 
     def __enter__(self) -> tuple[Figure, Axes] | tuple[Figure, list[Axes]]:
-        if len(self.__figure.axes) == 1:
-            return self.__figure, self.__figure.axes[0]
-        else:
-            return self.__figure, self.__figure.axes
+        if len(self._figure.axes) == 1:
+            return self._figure, self._figure.axes[0]
+        return self._figure, self._figure.axes
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.__cond_save()
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._cond_save()
 
-    def __del__(self):
-        self.__cond_save()
-        if not self.__settings.show_on_save:
-            plt.close(self.__figure)
+    def __del__(self) -> None:
+        self._cond_save()
+        if not self._settings.show_on_save:
+            plt.close(self._figure)
 
     def add_meta(self, new_metadata: dict[str, Any]) -> PlotResult:
-        self.__meta |= new_metadata
+        self._meta |= new_metadata
         return self
-    
+
     def has_meta(self, key: str) -> bool:
-        return key in self.__meta
+        return key in self._meta
 
     def get_meta(self, key: str) -> Any | None:
-        return self.__meta.get(key)
+        return self._meta.get(key)
 
     @staticmethod
-    def Clean_Kwargs(kwargs: dict):
+    def clean_kwargs(kwargs: dict) -> dict:
         return core._clean_args(kwargs, ["no_save"])

@@ -2,26 +2,23 @@ import os
 
 
 class Importer:
-    __Allowed_File_Extensions = {".txt", ".csv"}
+    _ALLOWED_FILE_EXTENSIONS = {".txt", ".csv"}
 
     @classmethod
-    def Is_Allowed_File(cls, file_path: str, extensions: set[str] = None) -> bool:
-        """
-        Checks if the file has an allowed extension.
-        """
+    def is_allowed_file(cls, file_path: str, extensions: set[str] | None = None) -> bool:
+        """Checks if the file has an allowed extension."""
         if extensions is None:
-            extensions = cls.__Allowed_File_Extensions
+            extensions = cls._ALLOWED_FILE_EXTENSIONS
 
         return (
             os.path.isfile(file_path) and os.path.splitext(file_path)[1] in extensions
         )
 
     @classmethod
-    def Parse_File_Name(
+    def parse_file_name(
         cls, file_path: str, require_sample_no: bool = True
     ) -> tuple[int, list[str]] | None:
-        """
-        Parses the file name to check if it contains a date (YYYYMMDD) and sample number (S##).
+        """Parses the file name to check if it contains a date (YYYYMMDD) and sample number (S##).
 
         Returns a tuple if ok:
         - int: Sample number
@@ -45,14 +42,14 @@ class Importer:
             return 1, name_parts
 
     @classmethod
-    def Files_From_Folder(
+    def files_from_folder(
         cls, folder_path: str, extensions: set[str] | None = None
     ) -> list[str]:
         """Returns a list of file paths from the specified folder, filtering by allowed extensions.
 
         Args:
-            folderPath: Path to folder to search
-            extensions: Set of allowed file extensions (default: cls.AllowedFileExtensions)
+            folder_path: Path to folder to search
+            extensions: Set of allowed file extensions (default: cls._ALLOWED_FILE_EXTENSIONS)
 
         Returns:
             List of file paths matching the criteria
@@ -61,7 +58,7 @@ class Importer:
             FileNotFoundError: If folder doesn't exist
         """
         if extensions is None:
-            extensions = cls.__Allowed_File_Extensions
+            extensions = cls._ALLOWED_FILE_EXTENSIONS
 
         if not os.path.isdir(folder_path):
             raise FileNotFoundError(f"Folder not found: {folder_path}")
@@ -69,7 +66,7 @@ class Importer:
         files = []
         for item in os.listdir(folder_path):
             path = os.path.join(folder_path, item)
-            if cls.Is_Allowed_File(path, extensions):
+            if cls.is_allowed_file(path, extensions):
                 files.append(path)
 
         return files

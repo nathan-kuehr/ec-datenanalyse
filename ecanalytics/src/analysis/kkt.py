@@ -8,8 +8,10 @@ from .payloads import ImpedancePayload, KramersKronigPayload
 from ..data.experiment import Experiment
 
 
-@parallel.Cache.cache
-def _cached_kramers_kronig_test(payload: ImpedancePayload, kwargs: dict) -> KramersKronigPayload:
+@parallel.CACHE.cache
+def _cached_kramers_kronig_test(
+    payload: ImpedancePayload, kwargs: dict
+) -> KramersKronigPayload:
     kkt = pyimpspec.perform_kramers_kronig_test(
         data=pyimpspec.DataSet(payload.frequencies, payload.impedances), **kwargs
     )
@@ -17,11 +19,16 @@ def _cached_kramers_kronig_test(payload: ImpedancePayload, kwargs: dict) -> Kram
         kkt.frequencies, kkt.residuals * 100, payload.sample_name
     )
 
-def _call_argument_parser(args: tuple, kwargs: dict, default: dict, sample_names: list[str], name: str = "") -> list:
-    # Count of arguments
+
+def _call_argument_parser(
+    args: tuple,
+    kwargs: dict,
+    default: dict,
+    sample_names: list[str],
+    name: str = "",
+) -> list:
     nargs, nkwargs = len(args), len(kwargs)
 
-    # Prepare the args for each sample
     if nargs > 0 and nkwargs == 0:
         if nargs > 1:
             raise ValueError(
@@ -39,11 +46,13 @@ def _call_argument_parser(args: tuple, kwargs: dict, default: dict, sample_names
             "Please provide either only positional or only keyword arguments, not both."
         )
 
+
 class KKT:
+    _DEFAULT_CALCULATION_ARGS = {"test": "complex"}
+
     def __init__(self, root: Experiment) -> None:
         self._root = root
-
-        self._data = None
+        self._data: pd.DataFrame | None = None
 
     @property
     def data(self) -> pd.DataFrame:
@@ -52,25 +61,22 @@ class KKT:
             assert self._data is not None
         return self._data
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> None:
         data = self._root.data
         sample_names = list(data["Sample Name"].unique())
 
-        #
-        Default_Calculation_Args = {"test": "complex"}
+        args_list = _call_argument_parser(
+            args, kwargs, self._DEFAULT_CALCULATION_ARGS, sample_names, "KKT"
+        )
 
-        # Prepare the args for each sample
-        args_list = _call_argument_parser(args, kwargs, Default_Calculation_Args, sample_names, "KKT")
+        # Find frequencies with inductive behaviour & mask them
+        inductive_freqs = data[data["Neg. Reactance"] < 0]["Frequency"].unique()
+        masks = [~np.isin(data["Frequency"].unique(), inductive_freqs)] * len(sample_names)
+        input_list = ImpedancePayload.from_data(data, masks)
 
-        # Find frequencies w/ inductive behaviour & mask them
-        ind_freqs = data[data["Neg. Reactance"] < 0]["Frequency"].unique()
-        masks = [~np.isin(data["Frequency"].unique(), ind_freqs)] * len(sample_names)
-        input_list = ImpedancePayload.From_Data(data, masks)
-
-        # Run the parallelized KKT calculation
         payloads: list[KramersKronigPayload] = parallel.multiprocess(
             method=_cached_kramers_kronig_test,
-            input=input_list,
+            inputs=input_list,
             tqdm_note=f"Calculating Kramers-Kronig Tests for EIS Experiment '{self._root.name}'",
             args=args_list,
         )
@@ -94,10 +100,10 @@ class KKT:
     def compile_stats(
         self, zero_centered: bool = True, pool: bool = False
     ) -> np.ndarray:
-        return self.Compile_Stats_Data(self.data, zero_centered, pool)
+        return self.compile_stats_data(self.data, zero_centered, pool)
 
     @staticmethod
-    def Compile_Stats_Data(
+    def compile_stats_data(
         data: pd.DataFrame, zero_centered: bool = False, pool: bool = False
     ) -> np.ndarray:
         flat_residuals = data[["Real Residual", "Imag. Residual"]].to_numpy()
@@ -105,7 +111,7 @@ class KKT:
         nsamples = data["Sample Name"].nunique()
         nfreqs = len(data) // nsamples
 
-        # Reshape. If we do pooling, just append the samples on the frequency axis to each other
+        # Reshape. If pooling, append the samples on the frequency axis to each other
         shape = (1, nsamples * nfreqs, 2) if pool else (nsamples, nfreqs, 2)
         residuals = np.reshape(flat_residuals, shape)
 
@@ -126,7 +132,7 @@ class KKT:
         return np.hstack((rms, std, rho[:, None]))
 
     @staticmethod
-    def As_Component_Data(data: pd.DataFrame) -> pd.DataFrame:
+    def as_component_data(data: pd.DataFrame) -> pd.DataFrame:
         return data.rename(
             columns={"Real Residual": "Real", "Imag. Residual": "Imaginary"}
         ).melt(
@@ -135,7 +141,3 @@ class KKT:
             var_name="Component",
             value_name="Residual",
         )
-
-    @staticmethod
-    def _Calculate_Single_KKT(payload: ImpedancePayload, **kwargs):
-        return _cached_kramers_kronig_test(payload, kwargs)

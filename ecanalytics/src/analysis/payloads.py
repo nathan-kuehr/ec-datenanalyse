@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 
@@ -11,16 +13,14 @@ class ImpedancePayload:
     sample_name: str
 
     @staticmethod
-    def From_Data(
+    def from_data(
         data: pd.DataFrame, mask: list[np.ndarray] | np.ndarray | None = None
     ) -> list[ImpedancePayload]:
         freqs = data["Frequency"].unique()
 
-        # If no mask is provided, use all frequencies
         if mask is None:
             mask = np.ones_like(freqs, dtype=bool)
 
-        # Listify
         if not isinstance(mask, list):
             mask = [mask] * data["Sample Name"].nunique()
 

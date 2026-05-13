@@ -2,7 +2,7 @@ from .sample import Sample
 
 
 class EISSampleBioLogic(Sample):
-    _Device_Details = {
+    _DEVICE_DETAILS = {
         "Delimiter": "\t",
         "Decimal": ",",
         "Series Naming": {
@@ -15,12 +15,12 @@ class EISSampleBioLogic(Sample):
         "Negative Phase": False,
     }
 
-    def __init__(self, filePath: str, content: str):
-        super().__init__(filePath, content)
+    def __init__(self, file_path: str, content: str) -> None:
+        super().__init__(file_path, content)
 
 
 class EISSamplePalmSens(Sample):
-    _Device_Details = {
+    _DEVICE_DETAILS = {
         "Delimiter": ",",
         "Decimal": ".",
         "Series Naming": {
@@ -33,5 +33,5 @@ class EISSamplePalmSens(Sample):
         "Negative Phase": True,
     }
 
-    def __init__(self, filePath: str, content: str):
-        super().__init__(filePath, content)
+    def __init__(self, file_path: str, content: str) -> None:
+        super().__init__(file_path, content)

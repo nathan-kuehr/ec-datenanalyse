@@ -7,6 +7,9 @@ from typing import Iterator, NamedTuple
 from .afm_image import AFMImage
 
 
+_RESOLUTION_TOLERANCE = 1e-12
+
+
 class WorkflowStep(NamedTuple):
     image: AFMImage
     description: str
@@ -14,10 +17,10 @@ class WorkflowStep(NamedTuple):
 
 class ImageWorkflow:
     def __init__(self) -> None:
-        self.__workflow = OrderedDict[str, WorkflowStep]()
+        self._workflow: OrderedDict[str, WorkflowStep] = OrderedDict()
 
     def push(self, image: AFMImage, key: str, description: str) -> None:
-        if key in self.__workflow:
+        if key in self._workflow:
             raise ValueError(f"Key '{key}' already exists in workflow! Must be unique.")
 
         if not self._is_allowed_image(image):
@@ -25,36 +28,35 @@ class ImageWorkflow:
                 "Image dimensions do not match the previously added images in the workflow!"
             )
 
-        self.__workflow[key] = WorkflowStep(image, description)
+        self._workflow[key] = WorkflowStep(image, description)
 
-    def get(self, id: str | int = -1) -> AFMImage:
-        if isinstance(id, int):
-            vs = self.__workflow.values()
+    def get(self, key: str | int = -1) -> AFMImage:
+        if isinstance(key, int):
+            values = self._workflow.values()
             return next(
-                islice(*((reversed(vs), -id - 1) if id < 0 else (vs, id)), None)
+                islice(*((reversed(values), -key - 1) if key < 0 else (values, key)), None)
             ).image
-        else:
-            return self.__workflow[id].image
+        return self._workflow[key].image
 
     def keys(self) -> set[str]:
-        return set(self.__workflow.keys())
+        return set(self._workflow.keys())
 
     def _is_allowed_image(self, image: AFMImage) -> bool:
-        if len(self.__workflow) == 0:
+        if len(self._workflow) == 0:
             return True
-        else:
-            base = self._base_image()
 
-            return np.all(
-                (image.shape == base.shape)
-                & (image.spatial_resolution - base.spatial_resolution < 1e-12)
-            )
+        base = self._base_image()
+
+        return np.all(
+            (image.shape == base.shape)
+            & (image.spatial_resolution - base.spatial_resolution < _RESOLUTION_TOLERANCE)
+        )
 
     def _base_image(self) -> AFMImage:
-        return next(iter(self.__workflow.values())).image
+        return next(iter(self._workflow.values())).image
 
     def __len__(self) -> int:
-        return len(self.__workflow)
+        return len(self._workflow)
 
     def __iter__(self) -> Iterator[WorkflowStep]:
-        return iter(self.__workflow.values())
+        return iter(self._workflow.values())

@@ -5,17 +5,16 @@ from .data.experiment import Experiment
 
 
 class Settings:
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         self.output_folder = kwargs.get(
-            "outputFolder", Global_Default_Settings.output_folder
+            "output_folder", _global_default_settings.output_folder
         )
         self.export_formats = kwargs.get(
-            "exportFormats", Global_Default_Settings.export_formats
+            "export_formats", _global_default_settings.export_formats
         )
-
-        self.dpi = kwargs.get("dpi", Global_Default_Settings.dpi)
+        self.dpi = kwargs.get("dpi", _global_default_settings.dpi)
         self.show_on_save = kwargs.get(
-            "showOnSave", Global_Default_Settings.show_on_save
+            "show_on_save", _global_default_settings.show_on_save
         )
 
     @property
@@ -24,16 +23,16 @@ class Settings:
         return self._output_folder
 
     @output_folder.setter
-    def output_folder(self, folderPath: str) -> None:
+    def output_folder(self, folder_path: str) -> None:
         """Sets the global output folder for exports.
 
         Args:
-            folderPath: Path to the output folder
+            folder_path: Path to the output folder
         """
-        if not os.path.isdir(folderPath):
-            os.makedirs(folderPath, exist_ok=True)
+        if not os.path.isdir(folder_path):
+            os.makedirs(folder_path, exist_ok=True)
 
-        self._output_folder = folderPath
+        self._output_folder = folder_path
 
     @property
     def export_formats(self) -> set[str]:
@@ -50,7 +49,7 @@ class Settings:
         self._export_formats = formats & {"svg", "pdf", "png", "jpg"}
 
     @classmethod
-    def Clean_Kwargs(cls, kwargs: dict, other_keys_to_remove: set[str] = set()) -> dict:
+    def clean_kwargs(cls, kwargs: dict, other_keys_to_remove: set[str] = set()) -> dict:
         """Cleans the kwargs dictionary by removing settings related keys.
 
         Args:
@@ -60,42 +59,37 @@ class Settings:
             Cleaned kwargs dictionary
         """
         keys_to_remove = {
-            "outputFolder",
-            "exportFormats",
+            "output_folder",
+            "export_formats",
             "dpi",
-            "showOnSave",
+            "show_on_save",
         } | other_keys_to_remove
         return {k: v for k, v in kwargs.items() if k not in keys_to_remove}
 
 
-# ================================================================================
 # Create a global default settings instance
-# ================================================================================
+_static_global_default_settings = Settings.__new__(Settings)
 
-Static_Global_Default_Settings = Settings.__new__(Settings)
+_static_global_default_settings._output_folder = "./vis"
+_static_global_default_settings._export_formats = {"svg", "pdf"}
+_static_global_default_settings.dpi = 300
+_static_global_default_settings.show_on_save = True
 
-Static_Global_Default_Settings._output_folder = "./vis"
-Static_Global_Default_Settings._export_formats = {"svg", "pdf"}
-Static_Global_Default_Settings.dpi = 300
-Static_Global_Default_Settings.show_on_save = True
-
-Global_Default_Settings = deepcopy(Static_Global_Default_Settings)
-
-# ================================================================================
+_global_default_settings = deepcopy(_static_global_default_settings)
 
 
 def _set(**kwargs) -> None:
     if "output_folder" in kwargs:
-        Global_Default_Settings.output_folder = kwargs["output_folder"]
+        _global_default_settings.output_folder = kwargs["output_folder"]
 
     if "export_formats" in kwargs:
-        Global_Default_Settings.export_formats = kwargs["export_formats"]
+        _global_default_settings.export_formats = kwargs["export_formats"]
 
     if "dpi" in kwargs:
-        Global_Default_Settings.dpi = kwargs["dpi"]
+        _global_default_settings.dpi = kwargs["dpi"]
 
     if "show_on_save" in kwargs:
-        Global_Default_Settings.show_on_save = kwargs["show_on_save"]
+        _global_default_settings.show_on_save = kwargs["show_on_save"]
 
 
 def _reset(args: set) -> None:
@@ -103,22 +97,22 @@ def _reset(args: set) -> None:
         args = {args}
 
     if "output_folder" in args:
-        Global_Default_Settings.output_folder = (
-            Static_Global_Default_Settings.output_folder
+        _global_default_settings.output_folder = (
+            _static_global_default_settings.output_folder
         )
 
     if "export_formats" in args:
-        Global_Default_Settings.export_formats = (
-            Static_Global_Default_Settings.export_formats
+        _global_default_settings.export_formats = (
+            _static_global_default_settings.export_formats
         )
 
     if "dpi" in args:
-        Global_Default_Settings.dpi = Static_Global_Default_Settings.dpi
+        _global_default_settings.dpi = _static_global_default_settings.dpi
 
     if "show_on_save" in args:
-        Global_Default_Settings.show_on_save = (
-            Static_Global_Default_Settings.show_on_save
+        _global_default_settings.show_on_save = (
+            _static_global_default_settings.show_on_save
         )
 
     if Experiment in args:
-        Experiment.Reset_Tracked_Objects()
+        Experiment.reset_tracked_objects()

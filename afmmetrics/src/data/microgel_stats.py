@@ -8,7 +8,12 @@ from skimage.registration import phase_cross_correlation
 from .afm_image import AFMImage
 
 
+_NON_ZERO_THRESHOLD = 1e-10
+
+
 class MicrogelStatsMixin:
+    _MACRO_STAT_KEYS = {"Count", "Density", "Coverage"}
+
     def __init__(self) -> None:
         self._macro: pd.DataFrame | None = None
         self._micro: pd.DataFrame | None = None
@@ -48,7 +53,6 @@ class MicrogelStatsMixin:
         size: float | None = None,
         trim_proportion: float = 0.2,
     ) -> AFMImage:
-        # Get selected data
         data = self.micro_stats if mask is None else self.micro_stats[mask]
         if data.empty or not {"Orientation", "Microgel Patch"}.issubset(data.columns):
             raise ValueError("No microgels were available / selected!")
@@ -82,7 +86,7 @@ class MicrogelStatsMixin:
 
             prep_patches.append(canvas)
 
-        # Make reference for the registration
+        # Reference for registration
         ref = np.mean(prep_patches, axis=0)
 
         # Second loop: register all the patches, i.e. align them using cross correlation
@@ -91,11 +95,11 @@ class MicrogelStatsMixin:
             shift, _, _ = phase_cross_correlation(ref, patch)
             reg_patches.append(ndi.shift(patch, shift, mode="constant", cval=0.0))
 
-        n_mean_effective = int(np.ceil(len(reg_patches) * (1 - trim_proportion)))
+        nmean_effective = int(np.ceil(len(reg_patches) * (1 - trim_proportion)))
 
         robust_patch = self._reference_image.copy()
         robust_patch.data = stats.trim_mean(reg_patches, trim_proportion, axis=0)
-        robust_patch._name = f"Averaged over {n_mean_effective} microgels."
+        robust_patch._name = f"Averaged over {nmean_effective} microgels."
         return robust_patch
 
     def microgel_profile(
@@ -121,7 +125,7 @@ class MicrogelStatsMixin:
             row = aligned.shape[0] // 2
 
         profile = aligned[row, :]
-        nonzeros = np.nonzero(np.abs(profile) > 1e-10)[0]
+        nonzeros = np.nonzero(np.abs(profile) > _NON_ZERO_THRESHOLD)[0]
 
         if len(nonzeros) > 0:
             if (trim := min(nonzeros[0], len(profile) - 1 - nonzeros[-1]) - 2) > 0:
@@ -130,5 +134,5 @@ class MicrogelStatsMixin:
         return profile
 
     @classmethod
-    def Is_Macro_Stat(cls, key: str) -> bool:
-        return key in {"Count", "Density", "Coverage"}
+    def is_macro_stat(cls, key: str) -> bool:
+        return key in cls._MACRO_STAT_KEYS

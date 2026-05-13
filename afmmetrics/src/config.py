@@ -55,8 +55,8 @@ REGION_PROPS_RENAMING = {
     "label": "Label",
     "orientation": "Orientation",
     "perimeter": "Perimeter",
-    "_Masked_Intensity_Patch": "Microgel Patch",
-    "_Masked_Max_Intensity": "Height",
+    "_masked_intensity_patch": "Microgel Patch",
+    "_masked_max_intensity": "Height",
 }
 
 AUTOTHRESHOLD_MULTIPLIER = 1.5
