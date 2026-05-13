@@ -23,6 +23,7 @@ from ..config import (
     MICROGEL_SERIES_INFO,
     REGION_PROPS_RENAMING,
     TARGET_REGION_PROPS,
+    AUTOTHRESHOLD_MULTIPLIER,
 )
 
 
@@ -252,7 +253,7 @@ class MicrogelImage(ImageMixinBase, MicrogelStatsMixin):
         # Robust threshold estimation: 1.4825 * MAD = approx STD
         median = np.median(bg_approx)
         mad = np.median(np.abs(bg_approx - median))
-        return median + (2 * 1.4826 * mad)  # 95% if it were normal dist
+        return median + (AUTOTHRESHOLD_MULTIPLIER * 1.4826 * mad)  # 95% if it were normal dist
 
     def _make_markers(
         self, seeds: np.ndarray, bg_mask: np.ndarray

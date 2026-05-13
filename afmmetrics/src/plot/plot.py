@@ -7,7 +7,7 @@ from matplotlib.axes import Axes
 from functools import singledispatch
 
 from ecanalytics.src.plot.plotresult import PlotResult
-from ecanalytics.src.plot.plot import (
+from ecanalytics.src.plot.basics import (
     __prepare_palette,
     __make_axes_label,
     __plot_clean_kwargs,
@@ -15,7 +15,7 @@ from ecanalytics.src.plot.plot import (
 from ecanalytics.src.config import (
     FIGURE_SETTINGS,
     RESIDUAL_PLOT_DEFAULT_FIGSIZE,
-    SNS_LINEPLOT_DEFAULT_SETTINGS,
+    DEFAULT_LINEPLOT_SETTINGS,
 )
 
 from ..data.afm import AFMImage
@@ -163,7 +163,7 @@ def __plot_data(
     config = {"data": macro if is_macro else micro, "x": x, "y": y}
 
     palette = __prepare_palette(config["data"], kwargs)
-    sns_args = SNS_LINEPLOT_DEFAULT_SETTINGS | kwargs | palette | config
+    sns_args = DEFAULT_LINEPLOT_SETTINGS | kwargs | palette | config
 
     with plt.rc_context(FIGURE_SETTINGS):
         # Create new figure if necessary

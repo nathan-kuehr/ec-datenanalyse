@@ -13,4 +13,10 @@ __gwyddion_colors = [
 ]
 __gwyddion_cmap = LinearSegmentedColormap.from_list("gwyddion", __gwyddion_colors)
 
-mpl.colormaps.register(cmap=__gwyddion_cmap)
+__colormap_is_registered = False
+
+def _register() -> None:
+    global __colormap_is_registered
+    if not __colormap_is_registered:
+        mpl.colormaps.register(cmap=__gwyddion_cmap)
+        __colormap_is_registered = True

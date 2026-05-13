@@ -7,15 +7,17 @@ from matplotlib.axes import Axes
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from ecanalytics.src.config import FIGURE_SETTINGS, SNS_LINEPLOT_DEFAULT_SETTINGS
+from ecanalytics.src.config import FIGURE_SETTINGS, DEFAULT_LINEPLOT_SETTINGS
 from ecanalytics.src.plot.plotresult import PlotResult
-from ecanalytics.src.plot.plot import (
+from ecanalytics.src.plot.basics import (
     __prepare_groupby,
     __active_groupby_cols,
     plot,
     __plot_clean_kwargs,
 )
 
+
+from . import colormap
 from ..data import ImageWorkflow, AFMImage, MicrogelImage, MicrogelStats
 from ..config import SCALEBAR_SETTINGS, SCALEBAR_COLOR_THRESHOLD, PROFILE_PLOT_FIGSIZE
 
@@ -23,6 +25,7 @@ from ..config import SCALEBAR_SETTINGS, SCALEBAR_COLOR_THRESHOLD, PROFILE_PLOT_F
 def __draw_in_axis(
     axis: Axes, image: AFMImage, show_scalebar: bool = True, show_height: bool = True
 ) -> None:
+    colormap._register()
     im = axis.imshow(image.data, cmap=(None if image.channels == 3 else "gwyddion"))
 
     if show_scalebar:
@@ -178,10 +181,10 @@ def microgel_profile(
         "x": "Distance",
         "y": "Height",
         "title": title,
-        "noSave": True,
+        "no_save": True,
         "series_info": MicrogelImage.Series_Info,
     }
-    kwargs = SNS_LINEPLOT_DEFAULT_SETTINGS | kwargs | config
+    kwargs = DEFAULT_LINEPLOT_SETTINGS | kwargs | config
     with plot(data, **kwargs) as (fig, ax):
         fig.set_size_inches(PROFILE_PLOT_FIGSIZE)
 

@@ -59,6 +59,8 @@ REGION_PROPS_RENAMING = {
     "_Masked_Max_Intensity": "Height",
 }
 
+AUTOTHRESHOLD_MULTIPLIER = 1.5
+
 # == PLOTTING SETTINGS ==
 
 SCALEBAR_SETTINGS = {"sep": 3, "loc": "lower right", "borderpad": 0.5, "frameon": False}
