@@ -6,9 +6,10 @@ from matplotlib import pyplot as plt
 from seaborn import FacetGrid
 
 from . import core
+from .basics import _combine_experiment_data, _listify_experiments
 from .plotresult import PlotResult
 from ..analysis.analysis import Analysis
-from ..analysis.drt import DRT
+from ..analysis.drt import evaluate_peak_curves
 from ..config import LARGE_FIGURE_SIZE
 from ..data.experiment import Experiment
 
@@ -17,38 +18,12 @@ _TAU_GRID_POINTS = 1000
 _NEGATIVE_POLARIZATION_CLIP = -1
 
 
-def _combine_drt_data_frames(
-    data: list[Experiment], peaks_to_draw: list[float], kwargs: dict
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if len(data) == 0:
-        raise ValueError("Data list is empty.")
-
-    combined_drt = pd.concat([exp.analysis.drt.data for exp in data], ignore_index=True)
-    combined_peaks = pd.concat(
-        [exp.analysis.drt.peak_select(peaks_to_draw) for exp in data],
-        ignore_index=True,
-    )
-
-    hue_group = kwargs.get("hue") or kwargs.get("tile")
-    if hue_group is None:
-        kwargs["hue"] = "Experiment Name"
-    elif hue_group != "Experiment Name":
-        combined_drt[hue_group] = (
-            combined_drt["Experiment Name"] + " - " + combined_drt[hue_group]
-        )
-        combined_peaks[hue_group] = (
-            combined_peaks["Experiment Name"] + " - " + combined_peaks[hue_group]
-        )
-
-    return combined_drt, combined_peaks
-
-
 def _draw_sampled_peaks(
     ax: Axes, drt_data: pd.DataFrame, peak_data: pd.DataFrame, kwargs: dict
 ) -> None:
     taus = drt_data["Time Constant"].to_numpy()
     tau_grid = np.logspace(np.log10(taus.min()), np.log10(taus.max()), _TAU_GRID_POINTS)
-    sampled_peaks = DRT.sample_peak_data(peak_data, tau_grid)
+    sampled_peaks = evaluate_peak_curves(peak_data, tau_grid)
 
     nsamples, npeaks, ntau = sampled_peaks.shape
 
@@ -95,13 +70,12 @@ def drt(
     peaks_to_draw: list[float] = [],
     **kwargs,
 ) -> PlotResult:
-    if isinstance(exp, Experiment):
-        data = exp.analysis.drt.data
-        peak_data = exp.analysis.drt.peak_select(peaks_to_draw)
-    elif isinstance(exp, list):
-        data, peak_data = _combine_drt_data_frames(exp, peaks_to_draw, kwargs)
-    else:
-        raise TypeError("Unsupported data type passed!")
+    data, peak_data = _combine_experiment_data(
+        _listify_experiments(exp),
+        lambda e: e.analysis.drt.data,
+        lambda e: e.analysis.drt.peak_select(peaks_to_draw),
+        kwargs=kwargs,
+    )
 
     kwargs["errorbar"] = None
 

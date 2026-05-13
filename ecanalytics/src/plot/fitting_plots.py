@@ -7,6 +7,7 @@ from matplotlib import colors
 from typing import Callable
 
 from . import core
+from .basics import _combine_experiment_data, _listify_experiments
 from .nyquist_plot import nyquist
 from .plotresult import PlotResult
 from ..config import DataSeriesInfo
@@ -26,34 +27,15 @@ def _mix_colors(
     return tuple((1 - factor) * ac + factor * bc for ac, bc in zip(a_rgb, b_rgb))
 
 
-def _combine_fitted_params_data_frames(
-    data: list[Experiment], kwargs: dict
-) -> pd.DataFrame:
-    if len(data) == 0:
-        raise ValueError("Data list is empty.")
-
-    combined = pd.concat(
-        [exp.analysis.fit.params_long for exp in data], ignore_index=True
-    )
-
-    if (hue_group := kwargs.get("hue", None)) is not None:
-        combined[hue_group] = combined["Experiment Name"] + " - " + combined[hue_group]
-
-    return combined
-
-
 def fitted_parameters(
     exp: Experiment | list[Experiment],
     title: str | None = None,
     series_info: dict[str, DataSeriesInfo] = {},
     **kwargs,
 ) -> PlotResult | None:
-    if isinstance(exp, Experiment):
-        data = exp.analysis.fit.params_long
-    elif isinstance(exp, list):
-        data = _combine_fitted_params_data_frames(exp, kwargs)
-    else:
-        raise TypeError("Unsupported data type passed!")
+    data = _combine_experiment_data(
+        _listify_experiments(exp), lambda e: e.analysis.fit.params_long, kwargs=kwargs
+    )
 
     return core.parameter_plot(
         data,
@@ -72,8 +54,7 @@ def show_fit(
     series_info: dict[str, DataSeriesInfo] = {},
     **kwargs,
 ) -> PlotResult | None:
-    if isinstance(exps, Experiment):
-        exps = [exps]
+    exps = _listify_experiments(exps)
 
     if kind is nyquist:
         freqs = np.vstack([exp.data["Frequency"].unique() for exp in exps])

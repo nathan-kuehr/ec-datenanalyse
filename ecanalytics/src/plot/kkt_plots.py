@@ -7,9 +7,10 @@ from matplotlib.patches import Rectangle
 from matplotlib.axes import Axes
 
 from . import core
+from .basics import _combine_experiment_data, _listify_experiments
 from .plotresult import PlotResult
 from ..analysis.analysis import Analysis
-from ..analysis.kkt import KKT
+from ..analysis.kkt import as_component_data, compile_residual_stats
 from ..data.experiment import Experiment
 from ..config import LARGE_FIGURE_SIZE, RESIDUAL_PLOT_SETTINGS
 
@@ -26,12 +27,12 @@ def _add_stats_overview(ax: Axes, data: pd.DataFrame, kwargs: dict) -> None:
         legend = core._iterate_legend(ax, dummy=False)
 
         for (_, text), (_, group) in zip(legend, grouped):
-            stats = np.squeeze(KKT.compile_stats_data(group, pool=True))
+            stats = np.squeeze(compile_residual_stats(group, pool=True))
             text.set_text(text.get_text() + f" [{_make_stat_label(stats)}]")
     else:
         # No legend drawn yet
         phantom = Rectangle((0, 0), 1, 1, visible=False)
-        stats = np.squeeze(KKT.compile_stats_data(data, pool=True))
+        stats = np.squeeze(compile_residual_stats(data, pool=True))
 
         ax.legend(
             handles=[phantom],
@@ -39,22 +40,6 @@ def _add_stats_overview(ax: Axes, data: pd.DataFrame, kwargs: dict) -> None:
             loc="best",
             frameon=False,
         )
-
-
-def _combine_residual_data_frames(
-    data: list[Experiment], kwargs: dict
-) -> pd.DataFrame:
-    if len(data) == 0:
-        raise ValueError("Data list is empty.")
-
-    combined = pd.concat([exp.analysis.kkt.data for exp in data], ignore_index=True)
-
-    if (hue_group := kwargs.get("hue", None)) is not None:
-        combined[hue_group] = combined["Experiment Name"] + " - " + combined[hue_group]
-    else:
-        kwargs["hue"] = "Experiment Name"
-
-    return combined
 
 
 def _make_stat_label(stat_row: np.ndarray) -> str:
@@ -65,14 +50,10 @@ def _make_stat_label(stat_row: np.ndarray) -> str:
 def residuals(
     exp: Experiment | list[Experiment], title: str | None = None, **kwargs
 ) -> PlotResult:
-    if isinstance(exp, Experiment):
-        data = exp.analysis.kkt.data
-    elif isinstance(exp, list):
-        data = _combine_residual_data_frames(exp, kwargs)
-    else:
-        raise TypeError("Unsupported data type passed!")
-
-    data = KKT.as_component_data(data)
+    data = _combine_experiment_data(
+        _listify_experiments(exp), lambda e: e.analysis.kkt.data, kwargs=kwargs
+    )
+    data = as_component_data(data)
 
     config = RESIDUAL_PLOT_SETTINGS | {
         "title": title,
@@ -104,12 +85,9 @@ def residual_distribution(
     include_stats: bool = True,
     **kwargs,
 ) -> PlotResult:
-    if isinstance(exp, Experiment):
-        data = exp.analysis.kkt.data
-    elif isinstance(exp, list):
-        data = _combine_residual_data_frames(exp, kwargs)
-    else:
-        raise TypeError("Unsupported data type passed!")
+    data = _combine_experiment_data(
+        _listify_experiments(exp), lambda e: e.analysis.kkt.data, kwargs=kwargs
+    )
 
     config = {
         "x": "Real Residual",

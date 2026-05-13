@@ -10,18 +10,22 @@ from .plotresult import PlotResult
 from ..config import FIGURE_SETTINGS
 
 
+def _listify_experiments(exp: Experiment | list[Experiment]) -> list[Experiment]:
+    if isinstance(exp, Experiment):
+        return [exp]
+    if isinstance(exp, list):
+        if not exp:
+            raise ValueError("No experimental data passed!")
+        return exp
+    raise TypeError("Unsupported data type passed!")
+
+
 def _combine_experiment_data(
     experiments: Experiment | list[Experiment],
     *extractors: Callable[[Experiment], pd.DataFrame],
     kwargs: dict,
 ) -> pd.DataFrame | list[pd.DataFrame]:
-    if isinstance(experiments, Experiment):
-        experiments = [experiments]
-    elif isinstance(experiments, list):
-        if not experiments:
-            raise ValueError("No experimental data passed!")
-    else:
-        raise TypeError("Unsupported data type passed!")
+    experiments = _listify_experiments(experiments)
 
     def transform(data: pd.DataFrame) -> None:
         data[diff_col] = data["Experiment Name"] + " - " + data[diff_col].astype(str)
