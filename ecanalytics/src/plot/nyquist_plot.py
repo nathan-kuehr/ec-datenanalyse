@@ -72,7 +72,7 @@ def _draw_nyquist_errorbars(
         if "style" in kwargs:
             config = {
                 "facecolor": colors.to_rgba(color, _ERRORBAR_FILL_ALPHA),
-                "edgecolor": colors.to_rgba(color, 1),
+                "edgecolor": colors.to_rgba(color, 1.0),
                 "linewidth": _ERRORBAR_EDGE_LINEWIDTH,
                 "linestyle": linestyle,
                 "zorder": 1,
