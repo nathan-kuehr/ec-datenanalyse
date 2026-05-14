@@ -5,7 +5,6 @@ import copy
 import pandas as pd
 import numpy as np
 
-from copy import deepcopy
 from typing import TYPE_CHECKING
 from collections.abc import Callable
 
@@ -140,14 +139,8 @@ class Experiment(SampleContainer):
         self._resistive_shift = shift_value
         return self
 
-    def phantom(self, new_data: None | pd.DataFrame) -> Experiment:
-        p = deepcopy(self)
-        p._samples = []
-        p._freqs = []
-        p._data = new_data
-        p._analysis = None
-        p._reload_data = lambda: None
-        return p
+    def phantom(self, new_data: None | pd.DataFrame) -> "SimulatedExperiment":
+        return SimulatedExperiment.from_source(self, new_data)
 
     def _reload_data(self) -> None:
         self._data = pd.concat(
@@ -170,3 +163,27 @@ class Experiment(SampleContainer):
                 "Error during adding of metadata - must be not unique per sample!"
             )
         return extended_data
+
+
+class SimulatedExperiment(Experiment):
+    def __init__(self, name: str, color: str | None = None) -> None:
+        super().__init__(name, color)
+
+    @classmethod
+    def from_source(
+        cls, source: Experiment, new_data: pd.DataFrame | None
+    ) -> "SimulatedExperiment":
+        sim = cls.__new__(cls)
+        # Copy state from the source experiment, then overwrite some slots
+        sim.__dict__.update(copy.deepcopy(source.__dict__))
+        sim._samples = []
+        sim._freqs = []
+        if new_data is not None:
+            sim._data = new_data
+            
+        # Completely disable analysis
+        sim.__setattr__("analysis", None)
+        return sim
+
+    def _reload_data(self) -> None:  # Impossible
+        return
