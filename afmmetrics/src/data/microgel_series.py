@@ -3,7 +3,7 @@ import pandas as pd
 from collections.abc import Callable
 
 from ecanalytics.src.data.sample_container import SampleContainer
-from ecanalytics.src.data.importer import Importer
+from ecanalytics.src.data import files as ec_files
 
 from .afm_image import AFMImage
 from .microgel_image import MicrogelImage
@@ -39,7 +39,7 @@ class MicrogelSeries(SampleContainer, MicrogelStatsMixin):
     ) -> "MicrogelSeries":
         for image in MicrogelImage.batch_load_factory(folder_path):
             if (
-                parsed := Importer.parse_file_name(image.path, require_sample_no=False)
+                parsed := ec_files.parse_file_name(image.path, require_sample_no=False)
             ) is None:
                 raise ValueError(
                     f"File name '{image.name}' does not follow the required naming convention."

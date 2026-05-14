@@ -11,7 +11,7 @@ from skimage import (
     segmentation as segm,
 )
 
-from ecanalytics.src.data.importer import Importer
+from ecanalytics.src.data import files as ec_files
 
 from .afm_image import AFMImage, ImageMixinBase
 from .image_workflow import ImageWorkflow
@@ -272,7 +272,7 @@ class MicrogelImage(ImageMixinBase, MicrogelStatsMixin):
         Args:
             folder_path: Path to folder containing microgel data files
         """
-        file_paths = Importer.files_from_folder(folder_path, {".txt"})
+        file_paths = ec_files.files_from_folder(folder_path, {".txt"})
         return [MicrogelImage(file_path) for file_path in file_paths]
 
     @staticmethod
