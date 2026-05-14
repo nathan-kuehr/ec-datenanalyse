@@ -8,7 +8,7 @@ from seaborn import FacetGrid
 import matplotlib.ticker as ticker
 
 from . import core
-from .covariance_visualization import CovarianceVisualization
+from .covariance import CovarianceVisualization
 from .basics import _combine_experiment_data
 from .plotresult import PlotResult
 from ..data.experiment import Experiment
