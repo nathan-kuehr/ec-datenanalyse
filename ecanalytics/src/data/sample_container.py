@@ -5,8 +5,10 @@ from collections.abc import Callable
 from ..palette import NEIColorPalette
 
 
+_names_in_use: set[str] = set()
+
+
 class SampleContainer:
-    _container_names_in_use: set[str] = set()
     _CONTAINER_NAME_PREFIX: str | None = None
 
     def __init__(self, name: str, color: None | str = None) -> None:
@@ -27,7 +29,7 @@ class SampleContainer:
 
     @classmethod
     def reset_tracked_objects(cls) -> None:
-        cls._container_names_in_use = set()
+        _names_in_use.clear()
 
     @property
     def name(self) -> str:
@@ -37,13 +39,13 @@ class SampleContainer:
     def name(self, new_name: str | None) -> None:
         new_name = new_name or f"{self._CONTAINER_NAME_PREFIX} #{id(self)}"
 
-        if new_name in self._container_names_in_use:
+        if new_name in _names_in_use:
             raise ValueError(
                 f"{self._CONTAINER_NAME_PREFIX} name '{new_name}' is already in use. Please choose a unique name."
             )
 
-        self._container_names_in_use.add(new_name)
-        self._container_names_in_use.discard(self._name)
+        _names_in_use.add(new_name)
+        _names_in_use.discard(self._name)
         self._name = new_name
 
     def _apply_container_groups(
