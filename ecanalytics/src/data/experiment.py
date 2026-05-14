@@ -30,9 +30,6 @@ class Experiment(SampleContainer):
         self._freqs: list[float] = []
         self._data: pd.DataFrame | None = None
 
-        # Resistive shift correction
-        self._resistive_shift = 0.0
-
         # Analysis related attributes
         self._analysis: Analysis | None = None
 
@@ -134,11 +131,6 @@ class Experiment(SampleContainer):
         self._reload_data()
         return self
 
-    def shift(self, shift_value: float) -> "Experiment":
-        """Apply a resistive shift correction to the experiment data."""
-        self._resistive_shift = shift_value
-        return self
-
     def phantom(self, new_data: None | pd.DataFrame) -> "SimulatedExperiment":
         return SimulatedExperiment.from_source(self, new_data)
 
@@ -149,7 +141,6 @@ class Experiment(SampleContainer):
         self._data["Offset-Corrected Resistance"] = (
             self._data["Offset-Corrected Resistance"]
             + self.mean_resistance_offset
-            + self._resistive_shift
         )
 
     def _add_metadata_to_data(self, data: pd.DataFrame) -> pd.DataFrame:
