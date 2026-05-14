@@ -314,7 +314,7 @@ def parameter_plot(
     title: str | None = None,
     series_info: dict[str, DataSeriesInfo] = {},
     **kwargs,
-) -> PlotResult | None:
+) -> PlotResult:
     if "hue" in kwargs:
         raise ValueError("'hue' parameter not allowed for parameter plots! Put it in the x argument.")
     kwargs = _merge_kwargs(DEFAULT_PARAMETER_PLOT_SETTINGS, kwargs)

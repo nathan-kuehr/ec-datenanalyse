@@ -32,7 +32,7 @@ def fitted_parameters(
     title: str | None = None,
     series_info: dict[str, DataSeriesInfo] = {},
     **kwargs,
-) -> PlotResult | None:
+) -> PlotResult:
     data = _combine_experiment_data(
         _listify_experiments(exp), lambda e: e.analysis.fit.params_long, kwargs=kwargs
     )
@@ -53,31 +53,31 @@ def show_fit(
     title: str | None = None,
     series_info: dict[str, DataSeriesInfo] = {},
     **kwargs,
-) -> PlotResult | None:
+) -> PlotResult:
     exps = _listify_experiments(exps)
 
-    if kind is nyquist:
-        freqs = np.vstack([exp.data["Frequency"].unique() for exp in exps])
-        f_max, f_min = freqs.max(), freqs.min()
-        freq_grid = np.logspace(np.log10(f_min), np.log10(f_max), _FIT_FREQ_GRID_POINTS)
+    if kind is not nyquist:
+        raise NotImplementedError(f"show_fit currently only supports `nyquist` as `kind`, got {kind!r}")
 
-        sims = [exp.analysis.fit.simulate_experiment(freq_grid) for exp in exps]
-        res = nyquist(exps + sims, title, series_info=series_info, legend=True, **kwargs)
+    freqs = np.vstack([exp.data["Frequency"].unique() for exp in exps])
+    f_max, f_min = freqs.max(), freqs.min()
+    freq_grid = np.logspace(np.log10(f_min), np.log10(f_max), _FIT_FREQ_GRID_POINTS)
 
-        with res as (fig, axes):
-            if isinstance(axes, Axes):
-                axes = [axes]
+    sims = [exp.analysis.fit.simulate_experiment(freq_grid) for exp in exps]
+    res = nyquist(exps + sims, title, series_info=series_info, legend=True, **kwargs)
 
-            ax: Axes
-            for ax in axes:
-                lines = ax.lines
-                if len(ax.child_axes) > 0:
-                    lines += ax.child_axes[0].lines
-                for line in lines:
-                    if len(line.get_xdata()) == len(freq_grid):
-                        line.set_markersize(0)
-                        line.set_color(_mix_colors(line.get_color()))
+    with res as (fig, axes):
+        if isinstance(axes, Axes):
+            axes = [axes]
 
-        return res
+        ax: Axes
+        for ax in axes:
+            lines = ax.lines
+            if len(ax.child_axes) > 0:
+                lines += ax.child_axes[0].lines
+            for line in lines:
+                if len(line.get_xdata()) == len(freq_grid):
+                    line.set_markersize(0)
+                    line.set_color(_mix_colors(line.get_color()))
 
-    return None
+    return res
