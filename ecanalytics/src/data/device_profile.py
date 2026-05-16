@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 class DeviceProfile:
     delimiter: str
     decimal: str
-    series_naming: dict[str, str]
+    series_naming: dict[str, str] = field(hash=False)
     negative_phase: bool
 
 

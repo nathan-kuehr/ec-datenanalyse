@@ -33,9 +33,11 @@ DENSITY_SERIES_INFO = {"Density": DataSeriesInfo("", None, "linear")}
 FITTING_RANDLES_SERIES_INFO = {
     "Charge Transfer Resistance": DataSeriesInfo("R_ct", r"$\Omega$", "linear"),
     "Solution Resistance": DataSeriesInfo("R_s", r"$\Omega$", "linear"),
-    "Double-Layer Admittance": DataSeriesInfo("Y_dl", r"$\mu\mathrm{S}\mathrm{s}^n$", "linear"),
+    "Double-Layer Admittance": DataSeriesInfo("Y_dl", r"$\mathrm{S}\cdot\mathrm{s}^n$", "linear"),
     "Double-Layer Dispersion Factor": DataSeriesInfo("n_dl", None, "linear"),
-    "Warburg Admittance": DataSeriesInfo("Y_diff", r"$\mu\mathrm{S}$", "linear"),
-    "Warburg Time Constant": DataSeriesInfo("B_diff", r"$10^{-6}\cdot\mathrm{s}^n$", "linear"),
+    "Warburg Admittance": DataSeriesInfo("Y_diff", r"$\mathrm{S}$", "linear"),
+    "Warburg Time Constant": DataSeriesInfo("B_diff", r"$\mathrm{s}^n$", "linear"),
     "Warburg Exponent": DataSeriesInfo("n_diff", None, "linear"),
+    "Randles Time Constant": DataSeriesInfo("tau_r", "s", "linear"),
+    "Double Layer Equivalent Capacitance": DataSeriesInfo("C_dl, eq", r"$\mathrm{F}$", "linear"),
 }

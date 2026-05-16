@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import pyimpspec
 
 import numpy as np
 import pandas as pd
+
+_logger = logging.getLogger(__name__)
 
 from .. import parallel
 from ._args import call_argument_parser
@@ -28,8 +32,9 @@ def _cached_drt(payload: ImpedancePayload, **kwargs) -> DRTPayload:
     peak_infos = [_peak_info(peak, taus) for peak in api_peaks if peak.sigma < _PEAK_SIGMA_MAX]
 
     if len(api_peaks.peaks) != len(peak_infos):
-        print(
-            f"Warning: ill-fitted peaks detected for {payload.sample_name}. Consider adapting the DRT cutoff frequency."
+        _logger.warning(
+            "ill-fitted peaks detected for %s. Consider adapting the DRT cutoff frequency.",
+            payload.sample_name,
         )
 
     return DRTPayload(taus, gammas, peak_infos, payload.sample_name)

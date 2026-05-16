@@ -103,6 +103,9 @@ class Regions:
 
         # Find the peaks in that region -> are delimiters for the artefact region
         delims = list(peak_indices[mask[peak_indices]])
+        if len(delims) > 0:
+            delims = [delims[0]]
+
         # Always include inductive frequencies
         delims += list(np.where(smooth > 0)[0])
 
@@ -118,7 +121,7 @@ class Regions:
 
         if len(peak_indices) == 0:
             raise ValueError("Could not find kink")
-        return peak_indices[0]
+        return peak_indices[-1]
 
     @staticmethod
     def _phase_smoothing(phase: np.ndarray, window_length: int = _DEFAULT_SAVGOL_WINDOW) -> np.ndarray:

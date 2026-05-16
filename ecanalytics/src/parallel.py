@@ -57,7 +57,6 @@ def multiprocess(
 
     if jobs_to_compute:
         nprocs = int(_PROCESS_POOL_FRACTION * (os.cpu_count() or _DEFAULT_FALLBACK_CPU_COUNT))
-
         with ProcessPoolExecutor(max_workers=nprocs) as executor:
             futures = {
                 executor.submit(_proxy_caller, method_ids, sample, **arg): i

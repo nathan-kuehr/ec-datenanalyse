@@ -7,6 +7,21 @@ from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib import pyplot as plt
+from matplotlib.ticker import ScalarFormatter
+
+
+class _EngScalarFormatter(ScalarFormatter):
+    def __init__(self, **kwargs):
+        kwargs.setdefault("useMathText", True)
+        kwargs.setdefault("useOffset", False)
+        super().__init__(**kwargs)
+        self.set_scientific(True)
+        self.set_powerlimits((-3, 3))
+
+    def _set_order_of_magnitude(self):
+        super()._set_order_of_magnitude()
+        self.orderOfMagnitude = 3 * (self.orderOfMagnitude // 3)
+
 from pandas.core.groupby.generic import DataFrameGroupBy
 from seaborn import FacetGrid
 from typing import Iterable
@@ -356,6 +371,7 @@ def parameter_plot(
             _, label, unit = _make_axes_label(name, info, separated=True)
 
             ax.set(title=f"{name} {label}", ylabel=unit, xlabel="", xticks=[])
+            ax.yaxis.set_major_formatter(_EngScalarFormatter())
 
             # Add lines separating experiments
             for i in range(1, nexperiments):
