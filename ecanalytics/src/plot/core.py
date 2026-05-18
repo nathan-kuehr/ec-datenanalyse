@@ -3,11 +3,12 @@ import pandas as pd
 import seaborn as sns
 
 from copy import deepcopy
+from matplotlib import pyplot as plt
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib import pyplot as plt
 from matplotlib.ticker import ScalarFormatter
+from matplotlib.lines import Line2D
 
 
 class _EngScalarFormatter(ScalarFormatter):
@@ -56,7 +57,7 @@ def _active_groupby_cols(
     data: pd.DataFrame, kwargs: dict, additional_groups: set[str] = set()
 ) -> list[str]:
     active = {
-        kwargs[arg] for arg in {"hue", "style", "size", "tile"} if arg in kwargs
+        kwargs[arg] for arg in {"hue", "style", "size", "tile"} if kwargs.get(arg) is not None
     } | additional_groups
     return [col for col in data.columns if col in active]
 
@@ -78,7 +79,7 @@ def _prepare_palette(data: pd.DataFrame, kwargs: dict) -> dict:
 
     for pal, group in data.groupby("Palette", sort=False):
         n = _prepare_groupby(
-            group, {"hue": kwargs["hue"]} if "hue" in kwargs else {}
+            group, {"hue": kwargs.get("hue")}
         ).ngroups
         palette += pal.shade(n)  # pyright: ignore
 
@@ -130,6 +131,8 @@ def _make_axes_label(
 
             label = rf"${symbol}_\mathrm{{{index}}}$"
         else:
+            if label in _GREEK_LETTERS:
+                label = rf"\{label}"
             label = f"${label}$"
 
     unit = unit or "$-$"
@@ -152,17 +155,17 @@ def _set_axes_from_series_info(
 ) -> None:
     config = {}
 
-    if x is not None:
+    if x is not None and x != "Value":
         config |= {
             "xlabel": _make_axes_label(x, series_info[x]),
             "xscale": series_info[x].scale,
         }
-    if y is not None:
+    if y is not None and y != "Value":
         config |= {
             "ylabel": _make_axes_label(y, series_info[y]),
             "yscale": series_info[y].scale,
         }
-
+        
     ax.set(**config)
 
 
@@ -178,8 +181,8 @@ def _iterate_legend(target: Axes | Figure, dummy: bool):
         return
 
     def is_dummy(artist: Artist | None) -> bool:
-        if hasattr(artist, "get_markersize"):
-            return artist.get_markersize() == 0.0
+        if isinstance(artist, Line2D):
+            return artist.get_linewidth() == 0.0
         return False
 
     handles = legend.legend_handles
@@ -200,35 +203,49 @@ def lineplot(
 ) -> PlotResult:
     config = {"data": data, "x": x, "y": y}
 
+    # Prepare args
     sns_args = _merge_kwargs(DEFAULT_LINEPLOT_SETTINGS, kwargs) | config
     sns_args = Settings.clean_kwargs(sns_args)
     sns_args = PlotResult.clean_kwargs(sns_args)
 
     figure_settings = FIGURE_SETTINGS.copy()
 
-    # Check if we need to make a grid
-    tile_col: str = sns_args.pop("tile", None)
-    if (make_grid := tile_col is not None):
-        if "ax" in kwargs:
-            raise ValueError("Cannot pass 'ax' parameter along with 'tile'!")
+    _FACET_KEYS = ["row", "col"]
 
-        if not (make_legend := "hue" in sns_args):
-            sns_args["hue"] = tile_col
+    # =============== TILE ===============
+    # Shortcut for col / col_wrap
+    tile_col: str | None = sns_args.pop("tile", None)
+    if tile_col is not None:
+        if not sns_args.keys().isdisjoint(_FACET_KEYS):
+            raise ValueError("Cannot pass 'tile' together with 'row'/'col'!")
 
-        sns_args = _merge_kwargs(
-            DEFAULT_LINEPLOT_GRID_SETTINGS
-            | {"col_wrap": min(_MAX_GRID_COL_WRAP, data[tile_col].nunique())},
-            sns_args,
-        ) | {"col": tile_col, "legend": make_legend}
+        ncols = min(_MAX_GRID_COL_WRAP, data[tile_col].nunique())
+        sns_args |= { "col": tile_col, "col_wrap": ncols }
+    
+    # Check if any other grouping args passed
+    sns_args["legend"] = len(_active_groupby_cols(data, sns_args)) > 0
+        
+    # =============== GRID ===============
+    make_grid = not sns_args.keys().isdisjoint(_FACET_KEYS)
+    if make_grid:
+        if sns_args.get("ax") is not None:
+            raise ValueError("Cannot pass 'ax' parameter along with facet args!")
+        
+        sns_args = _merge_kwargs(DEFAULT_LINEPLOT_GRID_SETTINGS, sns_args)
 
+        # By default, set a color if columns are specified
+        sns_args["hue"] = sns_args.get("hue") or sns_args.get("col")
+        
+        # Turn it of for the grid
         figure_settings["figure.constrained_layout.use"] = False
+        
+    # Set palette (overridable)
+    sns_args = _prepare_palette(data, sns_args) | sns_args
 
-    sns_args |= _prepare_palette(data, sns_args)
-
-    nexperiments = data["Experiment Name"].nunique()
+    nexps = data["Experiment Name"].nunique()
 
     # Adapt title size if multiple axes passed
-    if ("ax" in kwargs and len(kwargs["ax"].figure.axes)) or make_grid:
+    if ("ax" in kwargs and len(kwargs["ax"].figure.axes) > 1) or make_grid:
         figure_settings["axes.titlesize"] = FIGURE_SETTINGS["legend.title_fontsize"]
 
     with plt.rc_context(figure_settings):
@@ -239,8 +256,8 @@ def lineplot(
             grid.set_titles(col_template="{col_name}")
             _set_axes_from_series_info(grid, x, y, series_info)
 
-            if make_legend:
-                sns.move_legend(grid, "outside lower center", ncol=nexperiments)
+            if grid.legend is not None:
+                sns.move_legend(grid, "outside lower center", ncol=nexps)
 
                 for _, text in _iterate_legend(fig, dummy=True):
                     text.set_fontsize(plt.rcParams["legend.title_fontsize"])
@@ -252,22 +269,22 @@ def lineplot(
             fig.set_layout_engine("constrained")
 
             return PlotResult(title, fig, **kwargs).add_meta({"grid": grid})  # pyright: ignore
+        else:
+            ax: Axes = sns_args.pop("ax", None) or plt.figure().gca()
+            assert isinstance(fig := ax.figure, Figure)
 
-        ax: Axes = sns_args.pop("ax", None) or plt.figure().gca()
-        assert isinstance(fig := ax.figure, Figure)
+            sns.lineplot(**sns_args, ax=ax)
 
-        sns.lineplot(**sns_args, ax=ax)
+            _set_axes_from_series_info(ax, x, y, series_info)
 
-        _set_axes_from_series_info(ax, x, y, series_info)
+            for _, text in _iterate_legend(ax, dummy=True):
+                text.set_fontsize(plt.rcParams["legend.title_fontsize"])
+                text.set_ha("center")
 
-        for _, text in _iterate_legend(ax, dummy=True):
-            text.set_fontsize(plt.rcParams["legend.title_fontsize"])
-            text.set_ha("center")
+            if title is not None:
+                ax.set_title(title)
 
-        if title is not None:
-            ax.set_title(title)
-
-        return PlotResult(title, fig, **kwargs)  # pyright: ignore
+            return PlotResult(title, fig, **kwargs)  # pyright: ignore
 
 
 def joint_distribution_plot(
