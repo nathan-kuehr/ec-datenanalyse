@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from seaborn import FacetGrid
 
 from . import core
-from .basics import _combine_experiment_data, _listify_experiments
+from .basics import _combine_experiment_data, _listify
 from .plotresult import PlotResult
 from ..analysis.analysis import Analysis
 from ..analysis.drt import evaluate_peak_curves
@@ -71,7 +71,7 @@ def drt(
     **kwargs,
 ) -> PlotResult:
     data, peak_data = _combine_experiment_data(
-        _listify_experiments(exp),
+        _listify(exp),
         lambda e: e.analysis.drt.data,
         lambda e: e.analysis.drt.peak_select(peaks_to_draw),
         kwargs=kwargs,

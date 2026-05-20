@@ -2,11 +2,13 @@ import numpy as np
 import pandas as pd
 
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib import pyplot as plt
 from seaborn import FacetGrid
-from typing import Callable
+from typing import Callable, Iterable
 
-from . import core
-from ..data.experiment import Experiment
+from . import core, region_plots
+from ..data.experiment import Experiment, SimulatedExperiment
 from .plotresult import PlotResult
 
 
@@ -14,22 +16,15 @@ _BODE_PHASE_DEFAULT_YLIM = (-90.0, 0.0)
 _BODE_COMPONENTS = ["Impedance", "Phase"]
 
 
-def _listify_experiments(exp: Experiment | list[Experiment]) -> list[Experiment]:
-    if isinstance(exp, Experiment):
-        return [exp]
-    if isinstance(exp, list):
-        if not exp:
-            raise ValueError("No experimental data passed!")
-        return exp
-    raise TypeError("Unsupported data type passed!")
-
+def _listify[T](obj: T | list[T]) -> list[T]:
+    return obj if isinstance(obj, list) else [obj]
 
 def _combine_experiment_data(
     experiments: Experiment | list[Experiment],
     *extractors: Callable[[Experiment], pd.DataFrame],
     kwargs: dict,
 ) -> pd.DataFrame | list[pd.DataFrame]:
-    experiments = _listify_experiments(experiments)
+    experiments = _listify(experiments)
 
     def transform(data: pd.DataFrame) -> None:
         data[diff_col] = data["Experiment Name"] + " - " + data[diff_col].astype(str)
@@ -63,20 +58,31 @@ def plot(
     assert isinstance(df, pd.DataFrame)
     return core.lineplot(df, x, y, title, Experiment.SERIES_INFO, **kwargs)
 
-
 def fresponse(
-    data: Experiment | list[Experiment], y: str, title: str | None = None, **kwargs
+    exps: Experiment | list[Experiment], y: str, title: str | None = None, show_regions: bool | Iterable[str] = False, **kwargs
 ) -> PlotResult:
-    return plot(data, x="Frequency", y=y, title=title, **kwargs)
+    res = plot(exps, x="Frequency", y=y, title=title, **kwargs)
+
+    if show_regions:
+        real_exps = [exp for exp in _listify(exps) if not isinstance(exp, SimulatedExperiment)]
+        data, region_data = _combine_experiment_data(
+            real_exps, 
+            lambda e: e.data,
+            lambda e: e.analysis.regions.data,
+            kwargs=kwargs)
+        assert isinstance(data, pd.DataFrame) and isinstance(region_data, pd.DataFrame)
+
+        with res as (fig, _):
+            region_plots._draw_markers(fig.axes, data, region_data, show_regions, "Frequency", kwargs)
+
+    return res
 
 
-def _prepare_bode_grid_data(
-    data: pd.DataFrame, tile_col: str | None, tile_vals
-) -> pd.DataFrame:
-    id_cols = [c for c in data.columns if c not in _BODE_COMPONENTS]
+def _prepare_bode_grid_data(data: pd.DataFrame, components: list[str], tile_col: str | None) -> pd.DataFrame:
+    id_cols = [c for c in data.columns if c not in components]
     melted = data.melt(
         id_vars=id_cols,
-        value_vars=_BODE_COMPONENTS,
+        value_vars=components,
         var_name="Component",
         value_name="Value",
     )
@@ -85,102 +91,132 @@ def _prepare_bode_grid_data(
         tidc = pd.Series(0, index=melted.index)
         ncols = 1
     else:
+        tile_vals = data[tile_col].unique()
         tidc = melted[tile_col].map({t: i for i, t in enumerate(tile_vals)})
         ncols = min(core._MAX_GRID_COL_WRAP, len(tile_vals))
 
-    sub_row = np.where(melted["Component"] == "Impedance", 0, 1)
+    sub_row = np.where(melted["Component"].str.contains("Impedance"), 0, 1)
     return melted.assign(
         _grid_col=tidc % ncols,
         _grid_row=(tidc // ncols) * 2 + sub_row,
     )
 
+def _bode_adjust_axes_kind(axes: np.ndarray, y_axis: str, tile_vals):
+    lims = [np.inf, -np.inf]
 
-def _adjust_bode_axes(grid: FacetGrid, tile_vals):
-    # Limits
-    imp_lim, phase_lim = [np.inf, -np.inf], [np.inf, -np.inf]
-
-    _, ncols = grid.axes.shape
+    is_magnitude = y_axis.count("Impedance") > 0
+    if not is_magnitude:
+        tile_vals = [""] * len(tile_vals)
+    
+    
+    _, ncols = axes.shape 
+    suppress_y_axis_annotation = {
+        "ylabel": "", 
+        "yticklabels": []
+    }
 
     ax: Axes
-    for i, ax in enumerate(grid.axes.flat):
+    for ax in axes.flat:
         if not ax.has_data():
             ax.set_visible(False) # Hide the ones w/o data
-            continue
+        
+        core._set_axes_from_series_info(ax, "Frequency", y_axis, Experiment.SERIES_INFO)
 
-        r = i // ncols
-        is_magnitude = (r % 2 == 0)
-        y = "Impedance" if is_magnitude else "Phase"
-
-        # Set axes - before reading lims for the log scale 
-        core._set_axes_from_series_info(ax, "Frequency", y, Experiment.SERIES_INFO)
-
-        # Update limits
         ymin, ymax = ax.get_ylim()
-        lim = imp_lim if is_magnitude else phase_lim
-        lim[0] = min(lim[0], ymin)
-        lim[1] = max(lim[1], ymax)
-    
-    # Apply now the lims + titles 
-    for i, ax in enumerate(grid.axes.flat):
+        lims[0] = min(lims[0], ymin)
+        lims[1] = max(lims[1], ymax)
+
+    for i, ax in enumerate(axes.flat):
         if not ax.has_data():
             continue
 
-        r, c = i // ncols, i % ncols
+        ax.set(
+            title=tile_vals[i],
+            ylim=lims,
+            **({} if not i % ncols else suppress_y_axis_annotation)
+        )
 
-        is_magnitude = (r % 2 == 0)
-        title = tile_vals[(r // 2) * ncols + c]
-
-        ax_config = {
-            "title": title if len(tile_vals) and is_magnitude else "",
-            "ylim": imp_lim if is_magnitude else phase_lim
-        }
-
-        # Suppress inner ylabels & ticks
-        if c > 0:
-            ax_config |= { "ylabel": "", "yticklabels": []}
-
-        ax.set(**ax_config)
 
 def bode(
-    data: Experiment | list[Experiment],
+    exps: Experiment | list[Experiment],
     title: str | None = None,
-    phase_ylim: tuple[float, float] | None = _BODE_PHASE_DEFAULT_YLIM,
+    offset_correct: bool = False,
+    show_regions: bool | Iterable[str] = False,
+    phase_clip: tuple[float, float] | bool = False,
     **kwargs,
 ) -> PlotResult:
-    df = _combine_experiment_data(data, lambda x: x.data, kwargs=kwargs)
-    assert isinstance(df, pd.DataFrame)
+    
+    # Prepare the data
+    data = _combine_experiment_data(exps, lambda x: x.data, kwargs=kwargs)
+    if show_regions:
+        region_data = _combine_experiment_data(exps, lambda e: e.analysis.regions.data, kwargs=kwargs)
+    assert isinstance(data, pd.DataFrame)
 
+    # Check which components to plot 
+    components = ["Impedance", "Phase"]
+    if offset_correct:
+        components = [f"Offset-Corrected {c}" for c in components]
+
+    # Grab the tiling columns
     if (tile_col := kwargs.pop("tile", None)) is not None:
-        tile_vals = df[tile_col].unique()
+        tile_vals = list(data[tile_col].unique())
     else:
         tile_vals = []
 
-    grid_data = _prepare_bode_grid_data(df, tile_col, tile_vals)
+    # Prepare the special grid data
+    grid_data = _prepare_bode_grid_data(data, components, tile_col)
 
-    config = kwargs | {
-        "data": grid_data,
+    BODE_DEFAULT_CONFIG = {
         "x": "Frequency",
         "y": "Value",
         "row": "_grid_row",
         "col": "_grid_col",
         "style": "Component",
+        "facet_kws": {"sharex": True, "sharey": False},
+    }
+
+    config = kwargs | BODE_DEFAULT_CONFIG | {
+        "data": grid_data,
         "series_info": Experiment.SERIES_INFO,
         "title": title,
-        "facet_kws": {"sharex": True, "sharey": False},
-        **core._prepare_palette(df, kwargs),
         "hue": kwargs.get("hue") or tile_col
-    }
+    } | core._prepare_palette(data, kwargs)
+
 
     res = core.lineplot(**config)
     with res as (fig, _):
         assert isinstance(grid := res.get_meta("grid"), FacetGrid)
 
-        # Manually adapt the axes
-        _adjust_bode_axes(grid, tile_vals)
-
-        # Half the height 
+        # Half the height
         w, h = fig.get_size_inches()
         fig.set_size_inches(w, h / 2)
 
+        _, ncols = grid.axes.shape
+
+        # Get axes handles
+        magn_axes, phase_axes = grid.axes[::2], grid.axes[1::2]
+
+        for axes, y_axis in zip((magn_axes, phase_axes), components):
+            _bode_adjust_axes_kind(axes, y_axis, tile_vals)
+
+        # Add lines indicating region boundaries        
+        if show_regions:
+            data = data[data["Data Origin"] == "Measured"]
+
+            real_exps = [exp for exp in _listify(exps) if not isinstance(exp, SimulatedExperiment)]
+            region_data = _combine_experiment_data(real_exps, lambda e: e.analysis.regions.data, kwargs=kwargs)
+            assert isinstance(region_data, pd.DataFrame)
+
+            for axes in (magn_axes, phase_axes):
+                region_plots._draw_markers(axes.flat, data, region_data, show_regions, "Frequency", kwargs | {"tile": tile_col})
+
+        # Phase clip
+        if isinstance(phase_clip, bool) and phase_clip:
+            phase_clip = (-90, 0)
+        if isinstance(phase_clip, tuple):
+            for ax in phase_axes.flat:
+                ax.set_ylim(phase_clip)
+
         fig.set_layout_engine("constrained")
+
     return res

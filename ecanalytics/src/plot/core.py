@@ -223,7 +223,7 @@ def lineplot(
         sns_args |= { "col": tile_col, "col_wrap": ncols }
     
     # Check if any other grouping args passed
-    sns_args["legend"] = len(_active_groupby_cols(data, sns_args)) > 0
+    sns_args.setdefault("legend", len(_active_groupby_cols(data, sns_args)) > 0)
         
     # =============== GRID ===============
     make_grid = not sns_args.keys().isdisjoint(_FACET_KEYS)

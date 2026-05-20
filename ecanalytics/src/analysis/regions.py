@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pandas as pd
 
@@ -5,6 +7,8 @@ from scipy import signal as sig
 
 from ._args import call_argument_parser
 from ..data.experiment import Experiment
+
+_logger = logging.getLogger(__name__)
 
 
 _DEFAULT_SAVGOL_WINDOW = 11
@@ -23,7 +27,7 @@ class Regions:
     @property
     def data(self) -> pd.DataFrame:
         if self._data is None:
-            self.analyze_phase()
+            self()
             assert self._data is not None
         return self._data
 
@@ -35,96 +39,115 @@ class Regions:
         return self._masks
 
     def __call__(self, *args, **kwargs):
+        # Get the args for each sample
         args_list = call_argument_parser(
             args, kwargs, self._DEFAULT_CALCULATION_ARGS, self._root.sample_names, "Regions"
         )
 
         freqs = self._root.data["Frequency"].unique()
 
-        grouped = self._root.data.groupby("Sample Name", sort=False)
-        resistance = np.column_stack(
-            [g["Offset-Corrected Resistance"].to_numpy() for _, g in grouped]
-        )
-        reactance = -np.column_stack(
-            [g["Neg. Reactance"].to_numpy() for _, g in grouped]
-        )
+        if not np.all(np.diff(freqs) < 0):
+            raise ValueError("Frequencies must be ordered in descending order!")
 
-        phases = np.arctan2(reactance, resistance)
-        smooth_phases = self._phase_smoothing(phases)
+        # Get lengths
+        nfreqs = len(freqs)
+        nsamples = self._root.data["Sample Name"].nunique()
 
-        kink_indices, artefact_indices = [], []
-        for arg, smooth in zip(args_list, smooth_phases.T):
-            peak_indices, _ = sig.find_peaks(smooth)
+        raw_magnitude = self._root.data["Offset-Corrected Impedance"].to_numpy().reshape(nsamples, nfreqs)
+        raw_phase = self._root.data["Offset-Corrected Phase"].to_numpy().reshape(nsamples, nfreqs)
 
-            kink_indices.append(self._find_kink_idx(peak_indices, smooth, arg["kink_min_phase"]))
-            artefact_indices.append(self._find_artefact_idx(peak_indices, smooth, arg["artefact_min_phase"]))
+        # Smoothing
+        smooth_magnitude = self._smooth(raw_magnitude)
+        smooth_phase = self._smooth(raw_phase)
 
-        kink_indices = np.array(kink_indices)
-        artefact_indices = np.array(artefact_indices)
+        # Indices
+        kink_idc, hf_artefact_idc, lf_artefact_idc = [], [], []
+        for args, smagn, sphase in zip(args_list, smooth_magnitude, smooth_phase):
+            kink_idx = self._find_kink_from_phase(sphase, args["kink_min_phase"])
+            hf_idx = self._find_hf_artefact_from_magnitude(smagn)
+            lf_idx = self._find_lf_artefact_from_phase(sphase, kink_idx)
 
-        kink_freqs = freqs[kink_indices]
-        artefact_freqs = freqs[artefact_indices]
+            kink_idc.append(kink_idx)
+            hf_artefact_idc.append(hf_idx)
+            lf_artefact_idc.append(lf_idx)
 
-        # Masks based on the smoothed versions
-        valid_mask = freqs[:, None] <= artefact_freqs[None, :]
-        diffusive_mask = freqs[:, None] <= kink_freqs[None, :]
+        # kink_idc = np.array(kink_idc, ) 
+        # hf_artefact_idc = np.array(hf_artefact_idc) 
+        # lf_artefact_idc = np.array(lf_artefact_idc)
+
+        kink_freqs = freqs[kink_idc]
+        hf_artefact_freqs = freqs[hf_artefact_idc]
+        lf_artefact_freqs = freqs[lf_artefact_idc]
+
+
+        # Raw Phase > 0 <=> inductive behaviour
+        # Logical or accumulation to the left (::-1) to mask out all freqs higher than the lowest inductive frequency
+        inductive_mask = np.logical_or.accumulate((raw_phase > 0)[::-1])[::-1]
+
+        # Valid mask is cutting out the 
+        valid_mask = (lf_artefact_freqs[:, None] < freqs[None, :]) & (freqs[None, :] <= hf_artefact_freqs[:, None])
+        valid_mask &= ~inductive_mask
+
+        # Diffusive & kinetic masks
+        diffusive_mask = freqs[None, :] <= kink_freqs[:, None]
         kinetic_mask = ~diffusive_mask
-
-        diffusive_mask &= valid_mask
-        kinetic_mask &= valid_mask
-
-        # Mask based on the real data points
-        inductive_mask = reactance > 0
 
         mask_dfs = []
         for i, name in enumerate(self._root.sample_names):
             mask_dfs.append(pd.DataFrame({
                 "Frequency": freqs,
-                "Diffusive Mask": diffusive_mask[:, i],
-                "Kinetic Mask": kinetic_mask[:, i],
-                "Valid Mask": valid_mask[:, i],
-                "Inductive Mask": inductive_mask[:, i],
+                "Diffusive Mask": diffusive_mask[i],
+                "Kinetic Mask": kinetic_mask[i],
+                "Valid Mask": valid_mask[i],
+                "Inductive Mask": inductive_mask[i],
                 "Sample Name": name,
             }))
 
-        self._data = pd.DataFrame({
+        masks = pd.concat(mask_dfs, axis=0, ignore_index=True)
+        data = pd.DataFrame({
             "Kink Frequency": kink_freqs,
-            "HF Artefact Threshold Frequency": artefact_freqs,
+            "HF Artefact Threshold Frequency": hf_artefact_freqs,
+            "LF Artefact Threshold Frequency": lf_artefact_freqs,
             "Sample Name": self._root.sample_names,
         })
-        self._masks = pd.concat(mask_dfs, axis=0, ignore_index=True)
+
+        self._data = self._root._add_metadata_to_data(data)
+        self._masks = self._root._add_metadata_to_data(masks)
 
     @staticmethod
-    def _find_artefact_idx(
-        peak_indices: np.ndarray, smooth: np.ndarray, min_phase: float
-    ) -> int:
-        # Mask where the phase enters the region close to zero
-        mask = smooth > np.radians(min_phase)
+    def _find_kink_from_phase(smooth_phase: np.ndarray, min_phase: float):
+        mask = smooth_phase > min_phase
 
-        # Find the peaks in that region -> are delimiters for the artefact region
-        delims = list(peak_indices[mask[peak_indices]])
-        if len(delims) > 0:
-            delims = [delims[0]]
+        peak_idc, _ = sig.find_peaks(smooth_phase)
+        peak_idc = peak_idc[mask[peak_idc]]
 
-        # Always include inductive frequencies
-        delims += list(np.where(smooth > 0)[0])
-
-        return np.max(delims, initial=0)
-
-    @staticmethod
-    def _find_kink_idx(
-        peak_indices: np.ndarray, smooth: np.ndarray, min_phase: float
-    ) -> int:
-        mask = smooth > np.radians(min_phase)
-
-        peak_indices = peak_indices[mask[peak_indices]]
-
-        if len(peak_indices) == 0:
+        if not len(peak_idc):
             raise ValueError("Could not find kink")
-        return peak_indices[-1]
-
+        return peak_idc[-1]
+    
     @staticmethod
-    def _phase_smoothing(phase: np.ndarray, window_length: int = _DEFAULT_SAVGOL_WINDOW) -> np.ndarray:
+    def _find_hf_artefact_from_magnitude(smooth_magnitude: np.ndarray):
+        slope = np.gradient(smooth_magnitude)
+
+        pos_idc = np.where(slope < 0)[0]
+
+        if not len(pos_idc):
+            _logger.warning("Could not find the HF frequency artefact!")
+            return 0
+        else:
+            return min(pos_idc[-1] + 1, len(smooth_magnitude) - 1)
+        
+    @staticmethod    
+    def _find_lf_artefact_from_phase(smooth_phase: np.ndarray, kink_idx: int):
+        peak_idc, _ = sig.find_peaks(-smooth_phase[kink_idx:])
+
+        if not len(peak_idc):
+            _logger.warning("Could not find the LF frequency artefact!")
+            return len(smooth_phase) - 1
+        return peak_idc[0] + kink_idx
+        
+    @staticmethod
+    def _smooth(phase: np.ndarray, window_length: int = _DEFAULT_SAVGOL_WINDOW) -> np.ndarray:
         return sig.savgol_filter(
-            phase, window_length=window_length, polyorder=_SAVGOL_POLYORDER, axis=0
+            phase, window_length=window_length, polyorder=_SAVGOL_POLYORDER, axis=1
         )

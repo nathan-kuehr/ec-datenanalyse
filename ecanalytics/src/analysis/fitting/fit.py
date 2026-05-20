@@ -134,9 +134,13 @@ class Fit:
 
     def simulate_experiment(self, frequencies: np.ndarray) -> SimulatedExperiment:
         sim = self._root.phantom(self.simulate(frequencies))
+        assert sim._data is not None
 
-        self._root.data["Data Origin"] = "Measured"
-        sim.data["Data Origin"] = "Simulated Fitted"
+        sim._data["Offset-Corrected Resistance"] = (
+            sim._data["Offset-Corrected Resistance"]
+            + self._root.mean_resistance_offset
+        )
+        sim.data["Data Origin"] = "Fitted"
 
         return sim
 

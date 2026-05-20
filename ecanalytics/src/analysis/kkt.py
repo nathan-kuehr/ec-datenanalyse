@@ -78,6 +78,17 @@ class KKT:
             self.__call__()
             assert self._data is not None
         return self._data
+    
+    @property
+    def data_long(self) -> pd.DataFrame:
+        return self.data.rename(
+            columns={"Real Residual": "Real", "Imag. Residual": "Imaginary"}
+        ).melt(
+            id_vars=["Frequency", "Sample Name", "Palette"],
+            value_vars=["Real", "Imaginary"],
+            var_name="Component",
+            value_name="Residual",
+        )
 
     def __call__(self, *args, **kwargs) -> None:
         data = self._root.data

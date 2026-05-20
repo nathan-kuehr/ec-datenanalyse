@@ -14,6 +14,8 @@ EIS_EXPERIMENT_SERIES_INFO = {
     "Phase": DataSeriesInfo("varphi", "°", "linear"),
     "Resistance": DataSeriesInfo("R", "$\\Omega$", "log"),
     "Offset-Corrected Resistance": DataSeriesInfo("R_oc", "$\\Omega$", "log"),
+    "Offset-Corrected Impedance": DataSeriesInfo("Z_oc", "$\\Omega$", "log"),
+    "Offset-Corrected Phase": DataSeriesInfo("varphi_oc", "°", "linear"),
     "Neg. Reactance": DataSeriesInfo("-X", "$\\Omega$", "log"),
 }
 

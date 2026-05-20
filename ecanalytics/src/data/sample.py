@@ -73,9 +73,20 @@ class Sample:
         self._resistance_offset = float(
             df["Resistance"][df["Neg. Reactance"] > 0].min()
         )  # type: ignore
-        df["Offset-Corrected Resistance"] = df["Resistance"] - self._resistance_offset
+
+        reactance = -df["Neg. Reactance"].to_numpy()
+
+        # Calculate offset corrected quantities
+        oc_resistance = df["Resistance"].to_numpy() - self._resistance_offset
+        oc_impedance = np.sqrt(oc_resistance**2 + reactance**2)
+        oc_phase = np.degrees(np.arctan2(reactance, oc_resistance))
+
+        df["Offset-Corrected Resistance"] = oc_resistance
+        df["Offset-Corrected Impedance"] = oc_impedance
+        df["Offset-Corrected Phase"] = oc_phase
 
         df["Sample Name"] = self._name
+        df["Data Origin"] = "Measured"
 
         return df
 
