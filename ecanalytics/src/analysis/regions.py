@@ -13,6 +13,7 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_SAVGOL_WINDOW = 11
 _SAVGOL_POLYORDER = 3
+_HF_ARTEFACT_SEARCH_SPREAD = 3
 
 
 class Regions:
@@ -37,6 +38,44 @@ class Regions:
             self()
         assert self._masks is not None
         return self._masks
+    
+    def make_mask(self, region: str, overlay_valid: bool = True):
+        freqs = self._root.data["Frequency"].unique()
+
+        if region == "diffusive":
+            kink_freqs = self.data["Kink Frequency"].to_numpy()
+
+            mask = freqs[None, :] <= kink_freqs[:, None]
+        elif region == "kinetic":
+            kink_freqs = self.data["Kink Frequency"].to_numpy()
+
+            mask = freqs[None, :] > kink_freqs[:, None]
+        elif region == "LF artefact":
+            lf_artefact_freqs = self.data["LF Artefact Threshold Frequency"].to_numpy()
+
+            mask = (lf_artefact_freqs[:, None] < freqs[None, :])
+            overlay_valid = False
+        elif region == "HF artefact":
+            hf_artefact_freqs = self.data["HF Artefact Threshold Frequency"].to_numpy()
+
+            mask = (hf_artefact_freqs[:, None] >= freqs[None, :])
+            overlay_valid = False
+        elif region == "valid":
+            mask = np.ones((len(self.data), len(freqs)), dtype=bool)
+            overlay_valid = True
+        else:
+            raise ValueError("Invalid Mask Name")
+        
+        if overlay_valid:
+            lf_artefact_freqs = self.data["LF Artefact Threshold Frequency"].to_numpy()
+            hf_artefact_freqs = self.data["HF Artefact Threshold Frequency"].to_numpy()
+
+            valid_mask = (lf_artefact_freqs[:, None] < freqs[None, :]) & (freqs[None, :] <= hf_artefact_freqs[:, None])
+
+            return mask & valid_mask
+        else:
+            return mask
+
 
     def __call__(self, *args, **kwargs):
         # Get the args for each sample
@@ -62,18 +101,14 @@ class Regions:
 
         # Indices
         kink_idc, hf_artefact_idc, lf_artefact_idc = [], [], []
-        for args, smagn, sphase in zip(args_list, smooth_magnitude, smooth_phase):
+        for args, smagn, sphase, rphase in zip(args_list, smooth_magnitude, smooth_phase, raw_phase):
             kink_idx = self._find_kink_from_phase(sphase, args["kink_min_phase"])
-            hf_idx = self._find_hf_artefact_from_magnitude(smagn)
+            hf_idx = self._find_hf_artefact_from_both(smagn, rphase)
             lf_idx = self._find_lf_artefact_from_phase(sphase, kink_idx)
 
             kink_idc.append(kink_idx)
             hf_artefact_idc.append(hf_idx)
             lf_artefact_idc.append(lf_idx)
-
-        # kink_idc = np.array(kink_idc, ) 
-        # hf_artefact_idc = np.array(hf_artefact_idc) 
-        # lf_artefact_idc = np.array(lf_artefact_idc)
 
         kink_freqs = freqs[kink_idc]
         hf_artefact_freqs = freqs[hf_artefact_idc]
@@ -126,7 +161,7 @@ class Regions:
         return peak_idc[-1]
     
     @staticmethod
-    def _find_hf_artefact_from_magnitude(smooth_magnitude: np.ndarray):
+    def _find_hf_artefact_from_both(smooth_magnitude: np.ndarray, raw_phase: np.ndarray):
         slope = np.gradient(smooth_magnitude)
 
         pos_idc = np.where(slope < 0)[0]
@@ -135,9 +170,11 @@ class Regions:
             _logger.warning("Could not find the HF frequency artefact!")
             return 0
         else:
-            return min(pos_idc[-1] + 1, len(smooth_magnitude) - 1)
-        
-    @staticmethod    
+            target_idx = pos_idc[-1] + 1
+            b, e = max(0, target_idx - _HF_ARTEFACT_SEARCH_SPREAD), min(len(smooth_magnitude), target_idx + _HF_ARTEFACT_SEARCH_SPREAD)
+            return b + np.argmax(raw_phase[b:e]) 
+
+    @staticmethod
     def _find_lf_artefact_from_phase(smooth_phase: np.ndarray, kink_idx: int):
         peak_idc, _ = sig.find_peaks(-smooth_phase[kink_idx:])
 
