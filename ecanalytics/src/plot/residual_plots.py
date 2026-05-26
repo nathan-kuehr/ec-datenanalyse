@@ -2,17 +2,17 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from seaborn import JointGrid
+from seaborn import JointGrid, FacetGrid
 from matplotlib.patches import Rectangle
 from matplotlib.axes import Axes
-from typing import Callable
+from typing import Callable, Iterable
 
-from . import core
-from .basics import _combine_experiment_data, _listify
+from . import core, region_plots
+from .basics import _combine_experiment_data
 from .plotresult import PlotResult
 from ..analysis.analysis import Analysis
 from ..analysis.kkt import compile_residual_stats
-from ..data.experiment import Experiment
+from ..data.experiment import Experiment, SimulatedExperiment
 from ..config import LARGE_FIGURE_SIZE, RESIDUAL_PLOT_SETTINGS
 
 
@@ -42,53 +42,69 @@ def _add_stats_overview(ax: Axes, data: pd.DataFrame, kwargs: dict) -> None:
             frameon=False,
         )
 
-
 def _make_stat_label(stat_row: np.ndarray) -> str:
     rms, _, _, rho = stat_row
     return rf"$\Delta_{{\mathrm{{rms}}}}$ = {rms:.2f} %, $\rho$ = {rho:.4f}"
 
 
-def _residuals_plot(
-    exp: Experiment | list[Experiment],
-    extractor: Callable[[Experiment], pd.DataFrame],
+def residuals(
+    exps: Experiment | list[Experiment],
     title: str | None,
-    kwargs: dict,
+    show_regions: bool | Iterable[str] = False, 
+    **kwargs,
 ) -> PlotResult:
-    data = _combine_experiment_data(exp, extractor, kwargs=kwargs)
+    data = _combine_experiment_data(exps, lambda e: e.analysis.kkt.data_long, kwargs=kwargs)
+    if show_regions:
+        region_data = _combine_experiment_data(exps, lambda e: e.analysis.regions.data, kwargs=kwargs)
+        assert isinstance(region_data, pd.DataFrame)
     assert isinstance(data, pd.DataFrame)
 
-    config = RESIDUAL_PLOT_SETTINGS | {
+    config = kwargs | RESIDUAL_PLOT_SETTINGS | {
         "title": title,
         "series_info": Analysis.SERIES_INFO,
     }
 
-    res = core.lineplot(data, **(kwargs | config))
+    res = core.lineplot(data, **config)
     with res as (fig, ax):
-        assert isinstance(ax, Axes)
-        fig.set_size_inches(LARGE_FIGURE_SIZE)
+        if (grid := res.get_meta("grid")) is not None:
+            assert isinstance(grid, FacetGrid)
 
-        # Equilibrated y axis
-        ylim_max = max(ax.get_ylim(), key=abs)
-        ax.set_ylim((-abs(ylim_max), abs(ylim_max)))
+            # Equilibrated y axis
+            ylim_max = abs(max(fig.axes[0].get_ylim(), key=abs))
+            grid.set(ylim=(-ylim_max, ylim_max))
 
-        # Good data borders
-        for y in (-1, +1):
-            ax.axhline(y, linewidth=_GOOD_DATA_REFERENCE_LINE_WIDTH, zorder=0, linestyle="-.", color="k")
+            # Good data borders
+            for y in (-1, +1):
+                grid.refline(y=y, linewidth=_GOOD_DATA_REFERENCE_LINE_WIDTH, zorder=0, linestyle="-.", color="k")
 
-        sns.move_legend(ax, "best", ncol=2)
+        else:
+            assert isinstance(ax, Axes)
+            fig.set_size_inches(LARGE_FIGURE_SIZE)
 
+            # Equilibrated y axis
+            ylim_max = max(ax.get_ylim(), key=abs)
+            ax.set_ylim((-abs(ylim_max), abs(ylim_max)))
+
+            # Good data borders
+            for y in (-1, +1):
+                ax.axhline(y, linewidth=_GOOD_DATA_REFERENCE_LINE_WIDTH, zorder=0, linestyle="-.", color="k")
+
+            sns.move_legend(ax, "best", ncol=2)
+        
+        if show_regions:
+            region_plots._draw_markers(fig.axes, data, region_data, show_regions, "Frequency", kwargs)
+        
     return res
 
 
-def _residual_distribution_plot(
+def residual_distribution(
     exp: Experiment | list[Experiment],
-    extractor: Callable[[Experiment], pd.DataFrame],
     title: str | None,
-    min_bound: float,
-    include_stats: bool,
-    kwargs: dict,
+    min_bound: float = _MIN_RESIDUAL_BOUND,
+    include_stats: bool = True,
+    **kwargs,
 ) -> PlotResult:
-    data = _combine_experiment_data(exp, extractor, kwargs=kwargs)
+    data = _combine_experiment_data(exp, lambda e: e.analysis.kkt.data, kwargs=kwargs)
     assert isinstance(data, pd.DataFrame)
 
     config = {
@@ -125,21 +141,3 @@ def _residual_distribution_plot(
         joint_ax.set(xlim=(-bound, bound), ylim=(-bound, bound))
 
     return PlotResult(title, fig, **kwargs)
-
-
-def residuals(
-    exp: Experiment | list[Experiment], title: str | None = None, **kwargs
-) -> PlotResult:
-    return _residuals_plot(exp, lambda e: e.analysis.kkt.data_long, title, kwargs)
-
-
-def residual_distribution(
-    exp: Experiment | list[Experiment],
-    title: str | None = None,
-    min_bound: float = _MIN_RESIDUAL_BOUND,
-    include_stats: bool = True,
-    **kwargs,
-) -> PlotResult:
-    return _residual_distribution_plot(
-        exp, lambda e: e.analysis.kkt.data, title, min_bound, include_stats, kwargs
-    )
