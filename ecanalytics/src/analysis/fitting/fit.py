@@ -11,6 +11,7 @@ from typing import Callable
 from .model import Model, _iterate_elements, _apply_worker_instruction
 from .stage import FittingStage, FittingProcedure
 from .._args import call_argument_parser
+from ..kkt import as_component_data
 from ..payloads import ImpedancePayload, FitResultPayload
 from ... import parallel
 from ...config import FITTING_RANDLES_SERIES_INFO
@@ -79,7 +80,7 @@ class Fit:
         self._root = root
 
         self._data: pd.DataFrame | None = None
-        self._params_wide: pd.DataFrame | None = None
+        self._params: pd.DataFrame | None = None
         self._circuits: list[Circuit] | None = None
 
     @property
@@ -87,62 +88,22 @@ class Fit:
         if self._data is None:
             raise ValueError("No fitting done yet - please call fit() explicitly!")
         return self._data
+    
+    @property
+    def params(self) -> pd.DataFrame:
+        if self._params is None:
+            raise ValueError("No fitting done yet - please call fit() explicitly!") 
+        return self._params
 
     @property
     def params_long(self) -> pd.DataFrame:
-        if self._params_wide is None:
-            raise ValueError("No fitting done yet - please call fit() explicitly!")
-        melted = self._params_wide.melt(
+        melted = self.params.melt(
             id_vars=["Sample Name"],
-            value_vars=list(self._params_wide.loc[:, :"Sample Name"].columns)[:-1],
+            value_vars=list(self.params.loc[:, :"Sample Name"].columns)[:-1],
             var_name="Parameter",
             value_name="Value",
         )[["Parameter", "Value", "Sample Name"]]
-        return self._root._add_metadata_to_data(melted)
-
-    def simulate(self, frequencies: np.ndarray) -> pd.DataFrame:
-        if self._circuits is None:
-            raise ValueError("No fitting done yet - please call fit() explicitly!")
-
-        omegas = 2 * np.pi * frequencies
-
-        dfs = []
-        for sample, circuit in zip(self._root._samples, self._circuits):
-            impedances = circuit.get_impedances(frequencies)
-
-            with np.errstate(divide="ignore"):
-                capacitances = np.abs(1 / (omegas * impedances.imag))
-
-            offset_corrected = (
-                impedances.real
-                - sample._resistance_offset
-            )
-
-            dfs.append(pd.DataFrame({
-                "Frequency": frequencies,
-                "Impedance": np.abs(impedances),
-                "Resistance": impedances.real,
-                "Neg. Reactance": -impedances.imag,
-                "Phase": np.degrees(np.angle(impedances)),
-                "Capacitance": capacitances,
-                "Offset-Corrected Resistance": offset_corrected,
-                "Sample Name": sample._name,
-            }))
-
-        data = pd.concat(dfs, axis=0, ignore_index=True)
-        return self._root._add_metadata_to_data(data)
-
-    def simulate_experiment(self, frequencies: np.ndarray) -> SimulatedExperiment:
-        sim = self._root.phantom(self.simulate(frequencies))
-        assert sim._data is not None
-
-        sim._data["Offset-Corrected Resistance"] = (
-            sim._data["Offset-Corrected Resistance"]
-            + self._root.mean_resistance_offset
-        )
-        sim.data["Data Origin"] = "Fitted"
-
-        return sim
+        return self._add_metadata_to_data(melted)
 
     def __call__(
         self,
@@ -151,6 +112,8 @@ class Fit:
         *args,
         **kwargs,
     ) -> None:
+        assert not isinstance(self._root, SimulatedExperiment)
+
         # Lengths
         sample_names = self._root.sample_names
         nsamples = len(sample_names)
@@ -218,14 +181,70 @@ class Fit:
 
         # Add additional parameters that can be derived form the fitted
         if isinstance(model, Model):
-            param_df = model._derived_parameters(param_df)
-            names = param_df.pop("Sample Name")
+            param_df = model._post_process_parameters(param_df)
+            
+        sorted = [c for c in param_df.columns if c != "Sample Name"] + ["Sample Name"]
+        param_df = param_df[sorted]
 
-            param_df.insert(len(param_df.columns), "Sample Name", names)
-
-        self._data = self._root._add_metadata_to_data(freq_df)
-        self._params_wide = self._root._add_metadata_to_data(param_df)
+        self._data = self._add_metadata_to_data(freq_df)
+        self._params = self._add_metadata_to_data(param_df)
         self._circuits = circuits
+
+    def simulate(self, frequencies: np.ndarray | None = None) -> pd.DataFrame:
+        assert not isinstance(self._root, SimulatedExperiment)
+        if self._circuits is None:
+            raise ValueError("No fitting done yet - please call fit() explicitly!")
+
+        if frequencies is None:
+            frequencies = self.data["Frequency"].unique()
+
+        frequencies = np.sort(frequencies)[::-1]
+        omegas = 2 * np.pi * frequencies
+
+        dfs = []
+        for sample, circuit in zip(self._root._samples, self._circuits):
+            impedances = circuit.get_impedances(frequencies)
+
+            with np.errstate(divide="ignore"):
+                capacitances = np.abs(1 / (omegas * impedances.imag))
+
+            oc_impedance = impedances - sample._resistance_offset
+            oc_resistance = oc_impedance.real
+            oc_phase = np.degrees(np.arctan2(oc_impedance.imag, oc_resistance))
+
+            dfs.append(pd.DataFrame({
+                "Frequency": frequencies,
+                "Impedance": np.abs(impedances),
+                "Resistance": impedances.real,
+                "Neg. Reactance": -impedances.imag,
+                "Phase": np.degrees(np.angle(impedances)),
+                "Capacitance": capacitances,
+                "Offset-Corrected Resistance": oc_resistance + self._root.mean_resistance_offset,
+                "Offset-Corrected Impedance": np.abs(oc_impedance),
+                "Offset-Corrected Phase": oc_phase,
+                "Sample Name": sample._name,
+            }))
+
+        data = pd.concat(dfs, axis=0, ignore_index=True)
+        return self._add_metadata_to_data(data)
+
+    def simulate_experiment(self, frequencies: np.ndarray | None = None) -> SimulatedExperiment:
+        assert not isinstance(self._root, SimulatedExperiment)
+
+        sim = self._root.phantom()
+
+        main_data = self.simulate(frequencies)
+        kkt_data = self._add_metadata_to_data(as_component_data(self.data))
+
+        sim._data = main_data
+        sim.analysis.kkt._data = kkt_data
+
+        return sim
+    
+    def _add_metadata_to_data(self, data: pd.DataFrame):
+        data = self._root._add_metadata_to_data(data)
+        data["Data Origin"] = "Fitted"
+        return data
     
     def _materialize_masks(self, old_procedures: list[FittingProcedure]) -> list[FittingProcedure]:
         nfreqs = self._root.data["Frequency"].nunique()

@@ -6,7 +6,7 @@ import pandas as pd
 from .. import parallel
 from ._args import call_argument_parser
 from .payloads import ImpedancePayload, KramersKronigPayload
-from ..data.experiment import Experiment
+from ..data.experiment import Experiment, SimulatedExperiment
 
 
 @parallel.CACHE.cache
@@ -55,14 +55,15 @@ def compile_residual_stats(
 
 
 def as_component_data(data: pd.DataFrame) -> pd.DataFrame:
-    return data.rename(
+    melted = data.rename(
         columns={"Real Residual": "Real", "Imag. Residual": "Imaginary"}
     ).melt(
-        id_vars=["Frequency", "Sample Name", "Palette"],
+        id_vars=["Frequency", "Sample Name"],
         value_vars=["Real", "Imaginary"],
         var_name="Component",
         value_name="Residual",
-    )
+    )[["Frequency", "Residual", "Component", "Sample Name"]]
+    return melted
 
 
 class KKT:
@@ -81,16 +82,12 @@ class KKT:
     
     @property
     def data_long(self) -> pd.DataFrame:
-        return self.data.rename(
-            columns={"Real Residual": "Real", "Imag. Residual": "Imaginary"}
-        ).melt(
-            id_vars=["Frequency", "Sample Name", "Palette"],
-            value_vars=["Real", "Imaginary"],
-            var_name="Component",
-            value_name="Residual",
-        )
+        data = as_component_data(self.data)
+        return self._root._add_metadata_to_data(data)
+
 
     def __call__(self, *args, **kwargs) -> None:
+        assert not isinstance(self._root, SimulatedExperiment)
         data = self._root.data
         sample_names = self._root.sample_names
 

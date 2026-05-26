@@ -12,7 +12,7 @@ _logger = logging.getLogger(__name__)
 from .. import parallel
 from ._args import call_argument_parser
 from .payloads import ImpedancePayload, DRTPayload
-from ..data.experiment import Experiment
+from ..data.experiment import Experiment, SimulatedExperiment
 
 
 _PEAK_SIGMA_MAX = 10
@@ -98,6 +98,7 @@ class DRT:
         return self._peak_data
 
     def __call__(self, *args, **kwargs) -> None:
+        assert not isinstance(self._root, SimulatedExperiment)
         data = self._root.data
 
         args_list = call_argument_parser(
