@@ -119,7 +119,7 @@ class Experiment(SampleContainer):
 
         return subexp
 
-    def remove_samples(self, to_remove: str | set[str]) -> "Experiment":
+    def remove_samples(self, to_remove: str | set[str]) -> Experiment:
         """Remove samples from the experiment by name or filename."""
         if isinstance(to_remove, str):
             to_remove = {to_remove}
@@ -130,9 +130,20 @@ class Experiment(SampleContainer):
         self._samples = [sample for sample in self._samples if keep(sample)]
         self._reload_data()
         return self
+    
+    def keep_samples(self, to_keep: str | set[str]) -> Experiment:
+        if isinstance(to_keep, str):
+            to_keep = {to_keep}
 
-    def phantom(self, new_data: None | pd.DataFrame) -> SimulatedExperiment:
-        return SimulatedExperiment.from_source(self, new_data)
+        def keep(sample: Sample) -> bool:
+            return sample._name in to_keep or sample._filename in to_keep
+        
+        self._samples = [sample for sample in self._samples if keep(sample)]
+        self._reload_data()
+        return self
+
+    def phantom(self) -> SimulatedExperiment:
+        return SimulatedExperiment.from_source(self)
 
     def _reload_data(self) -> None:
         self._data = pd.concat(
@@ -161,22 +172,15 @@ class SimulatedExperiment(Experiment):
         super().__init__(name, color)
 
     @classmethod
-    def from_source(
-        cls, source: Experiment, new_data: pd.DataFrame | None
-    ) -> SimulatedExperiment:
+    def from_source(cls, source: Experiment) -> SimulatedExperiment:
         sim = cls.__new__(cls)
         # Copy state from the source experiment, then overwrite some slots
         sim.__dict__.update(copy.deepcopy(source.__dict__))
+
         sim._samples = []
         sim._freqs = []
-        if new_data is not None:
-            sim._data = new_data
             
         return sim
 
     def _reload_data(self) -> None:  # Impossible
-        raise NotImplementedError("Error trying to access simulated data analysis!")
-    
-    @property
-    def analysis(self) -> Analysis:
-        raise NotImplementedError("Error trying to access simulated data analysis!")
+        raise NotImplementedError("Error trying to reload simulated data!")
