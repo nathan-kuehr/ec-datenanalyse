@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import pyimpspec
 
 import numpy as np
 import pandas as pd
@@ -15,8 +14,7 @@ from pyimpspec import (
     ConstantPhaseElement,
     generate_fit_identifiers
 )
-from scipy import stats, signal as sig
-from typing import TYPE_CHECKING
+from scipy import stats
 
 from .model import Model, _iterate_elements
 from .stage import FittingStage, FittingProcedure
@@ -30,6 +28,7 @@ _logger = logging.getLogger(__name__)
 
 
 _WARBURG_N_UPPER_LIMIT = 0.5
+_TAU_PEAK_TOLERANCE = (10 ** (1/10)) ** 2 # Two deci-decades
 
 
 class Randles(Model):
@@ -60,14 +59,17 @@ class Randles(Model):
         
         # Get lengths
         data = exp.data
-        nsamples = data["Sample Name"].nunique()
-        nfreqs = data["Frequency"].nunique()
 
         # Get data frames
         peak_data = exp.analysis.drt.peak_select([self._charac_peak_tau])
-        region_data = exp.analysis.regions.masks
+        diffusive_masks = exp.analysis.regions.make_mask(region="diffusive", overlay_valid=True)
 
-        diffusive_masks = region_data["Diffusive Mask"].to_numpy().reshape((nsamples, nfreqs))
+        r_s = data.merge(
+            exp.analysis.regions.data,
+            left_on=["Sample Name", "Frequency"],
+            right_on=["Sample Name", "HF Artefact Threshold Frequency"],
+            how="inner"
+        )["Resistance"]
 
         r_ct = (
             peak_data["Polarisation"].to_numpy()
@@ -82,7 +84,7 @@ class Randles(Model):
         b_diff = np.ones_like(r_ct) * FITTING_DEFAULT_INITIAL_VALUES["randles"]["B_diff"]
         y_diff = np.ones_like(r_ct) * FITTING_DEFAULT_INITIAL_VALUES["randles"]["Y_diff"]
 
-        r_s, n_diff = [], []
+        n_diff = []
         for (_, group), mask in zip(data.groupby("Sample Name", sort=False), diffusive_masks):
             impedance_data = group[["Resistance", "Neg. Reactance"]].to_numpy()
 
@@ -92,8 +94,6 @@ class Randles(Model):
                 y=impedance_data[mask, 0],
             ).slope
             n_diff.append((np.arctan(1 / m_inv) / np.pi) if m_inv != 0.0 else 0.5)
-
-            r_s.append(np.min(impedance_data[:, 0]))
 
         return pd.DataFrame({
             "R_s": r_s,
@@ -107,13 +107,10 @@ class Randles(Model):
 
     def _stages(self, exp: Experiment) -> list[FittingProcedure]:
         nsamples = exp.data["Sample Name"].nunique()
-        nfreqs = exp.data["Frequency"].nunique()
-
-        region_data = exp.analysis.regions.masks
 
         # Find the masks 
-        kinetic_masks = region_data["Kinetic Mask"].to_numpy().reshape((nsamples, nfreqs))
-        valid_masks = region_data["Valid Mask"].to_numpy().reshape((nsamples, nfreqs))
+        kinetic_masks = exp.analysis.regions.make_mask(region="kinetic", overlay_valid=True)
+        valid_masks = exp.analysis.regions.make_mask(region="valid")
 
         # If we got a tau, constrain over it 
         if self._charac_peak_tau is not None:
@@ -129,7 +126,7 @@ class Randles(Model):
             for tau in taus:
                 constraints.append(dict(
                     constraint_expressions=ces,
-                    constraint_variables={"tau_r": {"value": tau,"min":   0.9 * tau,"max":   1.1 * tau,"vary":  True},
+                    constraint_variables={"tau_r": {"value": tau,"min": tau / _TAU_PEAK_TOLERANCE,"max":   _TAU_PEAK_TOLERANCE * tau,"vary":  True},
                     },
                 ))
         else:
@@ -146,13 +143,14 @@ class Randles(Model):
                 FittingStage(
                     fix=["R_s"],
                     vary={
-                        "R_ct": 5, # ±5 %
+                        "R_ct": 10, # ±10 %
                         "n_dl": 5,
                     },
                     mask=valid,
                     **constraint
                 ),
                 FittingStage(
+                    fix=["R_s"], # Sometimes, the solver sacrifices R_s for a weird diffusive region. Prevent
                     mask=valid,
                     **constraint,
                 ),
@@ -160,8 +158,12 @@ class Randles(Model):
 
         return procedures
     
-    def _derived_parameters(self, parameters: pd.DataFrame) -> pd.DataFrame:
+    def _post_process_parameters(self, parameters: pd.DataFrame) -> pd.DataFrame:
+        # Add CT derived parameters
         parameters["tau_r"] = (parameters["Y_dl"] * parameters["R_ct"]) ** (1 / parameters["n_dl"])
         parameters["C_dl, eq"] = parameters["tau_r"] / parameters["R_ct"]
+
+        # Add diffusion derived parameters
+        parameters["Q_diff"] = (parameters["B_diff"] * parameters["Y_diff"]) ** parameters["n_diff"]
 
         return parameters

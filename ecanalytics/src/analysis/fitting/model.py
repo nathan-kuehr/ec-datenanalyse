@@ -96,5 +96,5 @@ class Model(ABC):
             circuits.append(clone)
         return circuits
     
-    def _derived_parameters(self, parameters: pd.DataFrame):
+    def _post_process_parameters(self, parameters: pd.DataFrame):
         return parameters
