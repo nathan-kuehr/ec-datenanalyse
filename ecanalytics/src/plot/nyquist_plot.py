@@ -122,7 +122,12 @@ def nyquist(
 ) -> PlotResult:
     df: pd.DataFrame = _combine_experiment_data(data, lambda x: x.data, kwargs=kwargs)
 
-    x_axis = ("Offset-Corrected " if offset_correct else "") + "Resistance"
+    # Determine x axis 
+    x_axis = "Resistance"
+    if offset_correct:
+        x_axis = f"Offset-Corrected {x_axis}"
+
+    # Setup the plot config
     config = {
         "x": x_axis,
         "y": "Neg. Reactance",
@@ -130,27 +135,31 @@ def nyquist(
         "no_save": True,
         "series_info": Experiment.SERIES_INFO,
     }
-
     kwargs = DEFAULT_LINEPLOT_SETTINGS | kwargs | config
-
-    # Aggregate means
+    
+    # Prepare mean calculation
     grouped = core._prepare_groupby(
-        df, kwargs, additional_groups={"Frequency", "Experiment Name"}
-    )
-    agg = {kwargs["x"]: "mean", kwargs["y"]: "mean", "Palette": "first"}
-    if "Sample Name" not in core._active_groupby_cols(df, kwargs):
-        agg["Sample Name"] = list
-
-    mean_data = grouped.agg(agg).reset_index()
-    mean_data["Sample Names"] = mean_data["Sample Name"].apply(
-        lambda x: tuple(x) if isinstance(x, list) else (x,)
+        df, kwargs, additional_groups={"Frequency", "Experiment Name", "Palette"}
     )
 
-    if "Sample Name" in agg:
-        mean_data.pop("Sample Name")
+    # Base aggregations
+    agg_info = {kwargs[v]: "mean" for v in ("x", "y")}
+
+    # Aggregate sample names in a list
+    if sample_aggregate := "Sample Name" not in grouped.keys:
+        agg_info["Sample Name"] = list
+
+    mean_data = grouped.agg(agg_info).reset_index()
+
+    # Add sample names column
+    if sample_aggregate:
+        mean_data["Sample Names"] = mean_data["Sample Name"].apply(tuple)
+        mean_data.drop(columns=["Sample Name"], inplace=True)
+    else:
+        mean_data["Sample Names"] = mean_data["Sample Name"].apply(lambda x: (x,))
+
 
     tile_config = {"tile": kwargs.get("tile")}
-
     tile_grouped = core._prepare_groupby(df, tile_config)
     
     if (errorbar := kwargs.get("errorbar")) is not None:

@@ -9,7 +9,7 @@ def _draw_markers(axes: Iterable[Axes], data: pd.DataFrame, region_data: pd.Data
     if not show_regions:
         return
     elif isinstance(show_regions, bool):
-        show_regions = ["Kink Frequency"]
+        show_regions = ["Kink Frequency", "HF Artefact Threshold Frequency", "LF Artefact Threshold Frequency"]
 
     grouped = core._prepare_groupby(region_data, {"tile": kwargs.get("tile")})
 

@@ -2,7 +2,7 @@ from .drt_plot import drt
 from .nyquist_plot import nyquist
 from .basics import plot, bode, fresponse
 from .plotresult import PlotResult
-from .kkt_plots import residuals, residual_distribution
+from .residual_plots import residuals, residual_distribution
 from .fitting_plots import fitted_parameters, show_fit
 
 __all__ = [

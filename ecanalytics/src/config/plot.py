@@ -69,3 +69,9 @@ DEFAULT_LINEPLOT_GRID_SETTINGS = {
     "kind": "line",
     "facet_kws": {"sharex": True, "sharey": True},
 }
+
+DEFAULT_FIT_LINEPLOT_SETTINGS = {
+    "size": "Data Origin", 
+    "sizes": {"Measured": DEFAULT_LINEPLOT_SETTINGS["linewidth"], 
+                "Fitted": DEFAULT_LINEPLOT_SETTINGS["linewidth"] / 2.5}
+}

@@ -10,10 +10,7 @@ from typing import Callable, Iterable
 from . import core, region_plots
 from ..data.experiment import Experiment, SimulatedExperiment
 from .plotresult import PlotResult
-
-
-_BODE_PHASE_DEFAULT_YLIM = (-90.0, 0.0)
-_BODE_COMPONENTS = ["Impedance", "Phase"]
+from ..config import DataSeriesInfo
 
 
 def _listify[T](obj: T | list[T]) -> list[T]:
@@ -59,7 +56,11 @@ def plot(
     return core.lineplot(df, x, y, title, Experiment.SERIES_INFO, **kwargs)
 
 def fresponse(
-    exps: Experiment | list[Experiment], y: str, title: str | None = None, show_regions: bool | Iterable[str] = False, **kwargs
+    exps: Experiment | list[Experiment], 
+    y: str, 
+    title: str | None = None, 
+    show_regions: bool | Iterable[str] = False, 
+    **kwargs
 ) -> PlotResult:
     res = plot(exps, x="Frequency", y=y, title=title, **kwargs)
 
@@ -76,7 +77,6 @@ def fresponse(
             region_plots._draw_markers(fig.axes, data, region_data, show_regions, "Frequency", kwargs)
 
     return res
-
 
 def _prepare_bode_grid_data(data: pd.DataFrame, components: list[str], tile_col: str | None) -> pd.DataFrame:
     id_cols = [c for c in data.columns if c not in components]
@@ -160,8 +160,9 @@ def bode(
     # Grab the tiling columns
     if (tile_col := kwargs.pop("tile", None)) is not None:
         tile_vals = list(data[tile_col].unique())
+        kwargs.setdefault("hue", tile_col)
     else:
-        tile_vals = []
+        tile_vals = [""] * 2
 
     # Prepare the special grid data
     grid_data = _prepare_bode_grid_data(data, components, tile_col)
@@ -190,8 +191,6 @@ def bode(
         # Half the height
         w, h = fig.get_size_inches()
         fig.set_size_inches(w, h / 2)
-
-        _, ncols = grid.axes.shape
 
         # Get axes handles
         magn_axes, phase_axes = grid.axes[::2], grid.axes[1::2]

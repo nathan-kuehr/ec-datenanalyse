@@ -42,4 +42,5 @@ FITTING_RANDLES_SERIES_INFO = {
     "Warburg Exponent": DataSeriesInfo("n_diff", None, "linear"),
     "Randles Time Constant": DataSeriesInfo("tau_r", "s", "linear"),
     "Double Layer Equivalent Capacitance": DataSeriesInfo("C_dl, eq", r"$\mathrm{F}$", "linear"),
+    "Warburg Low-Frequency CPE": DataSeriesInfo("Q_diff", r"$\mathrm{S}\cdot\mathrm{s}^{2n}$", "linear"),
 }
