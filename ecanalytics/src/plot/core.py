@@ -83,9 +83,11 @@ def _prepare_palette(data: pd.DataFrame, kwargs: dict) -> dict:
         ).ngroups
         palette += pal.shade(n)  # pyright: ignore
 
-    if len(palette) > 1 or kwargs.get("hue") is not None:
+    if len(palette) > 1:
         return {"palette": palette}
-    return {"color": palette[0]}
+    else:
+        kwargs.pop("hue", None)
+        return {"color": palette[0]}
 
 
 # ===================== ARGS =====================
@@ -219,7 +221,8 @@ def lineplot(
         if not sns_args.keys().isdisjoint(_FACET_KEYS):
             raise ValueError("Cannot pass 'tile' together with 'row'/'col'!")
 
-        ncols = min(_MAX_GRID_COL_WRAP, data[tile_col].nunique())
+        
+        ncols = sns_args.pop("col_wrap", None) or min(_MAX_GRID_COL_WRAP, data[tile_col].nunique())
         sns_args |= { "col": tile_col, "col_wrap": ncols }
     
     # Check if any other grouping args passed
@@ -257,11 +260,21 @@ def lineplot(
             _set_axes_from_series_info(grid, x, y, series_info)
 
             if grid.legend is not None:
-                sns.move_legend(grid, "outside lower center", ncol=nexps)
-
+                ncols = 0
                 for _, text in _iterate_legend(fig, dummy=True):
                     text.set_fontsize(plt.rcParams["legend.title_fontsize"])
                     text.set_ha("center")
+                    ncols += 1
+
+
+                if ncols == 0:
+                    ncols = nexps
+                else:
+                    ncols = max(ncols, len(fig.legends[0].legend_handles) // 5)
+
+                ncols = min(ncols, 5)
+
+                sns.move_legend(grid, "outside lower center", ncol=ncols)
 
             if title is not None:
                 fig.suptitle(title)
@@ -277,9 +290,22 @@ def lineplot(
 
             _set_axes_from_series_info(ax, x, y, series_info)
 
-            for _, text in _iterate_legend(ax, dummy=True):
-                text.set_fontsize(plt.rcParams["legend.title_fontsize"])
-                text.set_ha("center")
+
+            if ax.get_legend() is not None:
+                ncols = 0
+                for _, text in _iterate_legend(ax, dummy=True):
+                    text.set_fontsize(plt.rcParams["legend.title_fontsize"])
+                    text.set_ha("center")
+                    ncols += 1
+
+                if ncols == 0:
+                    ncols = nexps
+                else:
+                    ncols = max(ncols, len(fig.legends[0].legend_handles) // 5)
+
+                ncols = min(ncols, 5)
+                
+                sns.move_legend(ax, "best", ncol=ncols)
 
             if title is not None:
                 ax.set_title(title)
@@ -349,6 +375,8 @@ def parameter_plot(
 ) -> PlotResult:
     if "hue" in kwargs:
         raise ValueError("'hue' parameter not allowed for parameter plots! Put it in the x argument.")
+    if kwargs.get("tile") is not None:
+        raise ValueError("'tile' parameter not supported for parameter plots - the grid is already used for the parameters (col='Parameter').")
     kwargs = _merge_kwargs(DEFAULT_PARAMETER_PLOT_SETTINGS, kwargs)
 
     palette = _prepare_palette(data, kwargs | {"hue": x})
@@ -373,8 +401,8 @@ def parameter_plot(
     # Map from symbol to (name, info)
     remapped_series_info = {info.symbol: (name, info) for name, info in series_info.items()}
 
-    nexperiments = data["Experiment Name"].nunique()
-    nhue = data[x].nunique() // nexperiments
+    nexps = data["Experiment Name"].nunique()
+    nhue = data[x].nunique() // nexps
 
     with plt.rc_context(FIGURE_SETTINGS | PARAMETER_PLOT_FIGURE_SETTINGS):
         grid = sns.catplot(**catplot_config)
@@ -387,14 +415,14 @@ def parameter_plot(
             name, info = remapped_series_info[ax.get_title()]
             _, label, unit = _make_axes_label(name, info, separated=True)
 
-            ax.set(title=f"{name} {label}", ylabel=unit, xlabel="", xticks=[])
+            ax.set(title=f"{name} {label}", ylabel=unit, xlabel="", xticks=[], yscale=info.scale)
             ax.yaxis.set_major_formatter(_EngScalarFormatter())
 
             # Add lines separating experiments
-            for i in range(1, nexperiments):
+            for i in range(1, nexps):
                 ax.axvline(nhue * i - 0.5, **_EXPERIMENT_SEPARATOR_LINE_KWARGS)
 
-        sns.move_legend(grid, "outside lower center", ncol=nexperiments)
+        sns.move_legend(grid, "outside lower center", ncol=nexps)
 
         fig = grid.figure
 

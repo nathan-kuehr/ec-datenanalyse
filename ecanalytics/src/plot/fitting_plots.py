@@ -1,9 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from matplotlib import colors, pyplot as plt
+from matplotlib import colors
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from seaborn import FacetGrid
 
@@ -70,9 +69,8 @@ def _adapt_fit_linestyle(res: PlotResult) -> None:
         if line.get_linewidth() == fitted_size:
             c = line.get_color()
 
-            blend = "w" if np.mean(colors.to_rgba(c)) < 0.5 else "k"
+            blend = "w" if np.mean(colors.to_rgb(c)) < 0.5 else "k"
 
-            line.set_markersize(0)
             line.set(markersize=0, color=_color_blend(c, blend))
             
 
@@ -114,39 +112,3 @@ def show_fit(
 
     else:
         raise ValueError("Unsupported plotting function passed as 'kind'!")
-
-
-
-    # # When tile is the only grouping, facet titles already name the groups
-    # if "legend" not in kwargs and _is_only_tile_grouping(kwargs):
-    #     kwargs["legend"] = False
-
-    # # Force an explicit hue column. Without this, e.g. bode would default
-    # # hue=tile_col, collapsing real+sim into a single line per facet.
-    # hue_col = _resolve_hue_column(kwargs)
-    # kwargs["hue"] = hue_col
-
-    # # Span the simulation grid across all experiment frequencies
-    # all_freqs = np.concatenate([exp.data["Frequency"].unique() for exp in exps])
-    # freq_grid = np.logspace(
-    #     np.log10(all_freqs.min()),
-    #     np.log10(all_freqs.max()),
-    #     _FIT_FREQ_GRID_POINTS,
-    # )
-
-    # sims = [exp.analysis.fit.simulate_experiment(freq_grid) for exp in exps]
-
-    # # Force sim into its own hue group via suffix; share colors via explicit palette
-    # real_data = pd.concat([exp.data for exp in exps], ignore_index=True)
-    # _tag_sim_data(sims, hue_col)
-
-    # kwargs.setdefault("palette", _build_fit_palette(real_data, hue_col))
-
-    # res = kind(exps + sims, title=title, series_info=series_info, **kwargs)
-
-    # with res as (fig, _):
-    #     _restyle_fit_lines(fig)
-    #     if kwargs.get("legend") is not False:
-    #         _replace_fit_legend(fig)
-
-    # return res

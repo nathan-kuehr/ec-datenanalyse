@@ -1,6 +1,8 @@
 import pandas as pd
+import seaborn as sns
 
 from matplotlib import colors, pyplot as plt
+from matplotlib.patches import Rectangle
 from matplotlib.axes import Axes
 from pandas.core.groupby.generic import DataFrameGroupBy
 from seaborn import FacetGrid
@@ -27,7 +29,7 @@ _ERRORBAR_EDGE_LINEWIDTH = 0.5
 
 def _clean_nyquist_args(kwargs: dict) -> dict:
     return core._clean_args(
-        kwargs, ["data", "title", "Rmin", "Rspan", "offset_correct"]
+        kwargs, ["data", "title", "Rmin", "Rspan", "offset_correct", "tile"]
     )
 
 
@@ -45,6 +47,19 @@ def _draw_inset_axes(data: pd.DataFrame, ax: Axes, kwargs: dict) -> Axes:
         # Copy colors from main axis to inset
         for inset_line, line in zip(inset.lines, ax.lines):
             inset_line.set_color(line.get_color())
+
+
+        patch_width = _INSET_AXES_BOUNDS[2]
+        patch_height = _INSET_AXES_BOUNDS[3]
+        phantom = Rectangle(
+            (_INSET_AXES_BOUNDS[0] - patch_width*0.1, _INSET_AXES_BOUNDS[1]-patch_height*0.1), 
+            patch_width*1.2, 
+            patch_height*1.2,
+            transform=ax.transAxes,
+            alpha=0.0,
+            zorder=0
+        )
+        ax.add_patch(phantom)
 
         inset.set_aspect("equal", adjustable="datalim")
 
@@ -198,6 +213,9 @@ def nyquist(
 
             if add_inset:
                 _draw_inset_axes(mean_data, ax, kwargs)
+
+            if (legend := ax.get_legend()) is not None:
+                sns.move_legend(ax, "best", ncol=legend._ncols)
 
             axes = [ax]
 

@@ -69,6 +69,8 @@ def residuals(
         if (grid := res.get_meta("grid")) is not None:
             assert isinstance(grid, FacetGrid)
 
+            fig.set_layout_engine("tight")
+
             # Equilibrated y axis
             ylim_max = abs(max(fig.axes[0].get_ylim(), key=abs))
             grid.set(ylim=(-ylim_max, ylim_max))
@@ -77,6 +79,7 @@ def residuals(
             for y in (-1, +1):
                 grid.refline(y=y, linewidth=_GOOD_DATA_REFERENCE_LINE_WIDTH, zorder=0, linestyle="-.", color="k")
 
+            fig.set_layout_engine("constrained")
         else:
             assert isinstance(ax, Axes)
             fig.set_size_inches(LARGE_FIGURE_SIZE)

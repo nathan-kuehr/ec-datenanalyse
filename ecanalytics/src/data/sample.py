@@ -54,6 +54,9 @@ class Sample:
             decimal=self._profile.decimal,
         )
         df.rename(columns=self._profile.series_naming, inplace=True)
+        if not self._REQUIRED_DATA_SERIES.issubset(df.columns):
+            self._reconstruct_missing_series(df, self._profile)
+
         df = pd.DataFrame(df[list(self._REQUIRED_DATA_SERIES)])
 
         if df.shape[1] != len(self._REQUIRED_DATA_SERIES):
@@ -89,6 +92,27 @@ class Sample:
         df["Data Origin"] = "Measured"
 
         return df
+    
+    @staticmethod
+    def _reconstruct_missing_series(df: pd.DataFrame, profile: DeviceProfile) -> None:
+        cartesian = {"Resistance", "Neg. Reactance"}
+        polar = {"Impedance", "Phase"}
+
+        has_cartesian = cartesian.issubset(df.columns)
+        has_polar = polar.issubset(df.columns)
+
+        if has_polar and not has_cartesian:
+            impedance = df["Impedance"].to_numpy()
+            phase = np.radians(df["Phase"].to_numpy())
+            df["Resistance"] = impedance * np.cos(phase)
+            df["Neg. Reactance"] = -impedance * np.sin(phase)
+        elif has_cartesian and not has_polar:
+            resistance = df["Resistance"].to_numpy()
+            reactance = -df["Neg. Reactance"].to_numpy()
+            phase = np.degrees(np.arctan2(reactance, resistance))
+
+            df["Impedance"] = np.sqrt(resistance**2 + reactance**2)
+            df["Phase"] = -phase if profile.negative_phase else phase
 
     @staticmethod
     def _extract_data_field(content: str, profile: DeviceProfile) -> str:
@@ -105,7 +129,12 @@ class Sample:
             if match:
                 group_list = list(group)
                 data_lines = split_content[group_list[0][0] : group_list[-1][0] + 1]
-                return "\n".join(data_lines)
+                
+                data_field = "\n".join(data_lines)
+                if profile is BIOLOGIC:
+                    return data_field.replace(".", ",")
+                else:
+                    return data_field
 
         raise ValueError("No consistent data field found in file.")
 

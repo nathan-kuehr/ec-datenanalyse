@@ -11,7 +11,7 @@ from ..data.experiment import Experiment, SimulatedExperiment
 
 @parallel.CACHE.cache
 def _cached_kramers_kronig_test(
-    payload: ImpedancePayload, kwargs: dict
+    payload: ImpedancePayload, **kwargs
 ) -> KramersKronigPayload:
     kkt = pyimpspec.perform_kramers_kronig_test(
         data=pyimpspec.DataSet(payload.frequencies, payload.impedances), **kwargs

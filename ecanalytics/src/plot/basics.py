@@ -24,10 +24,11 @@ def _combine_experiment_data(
     experiments = _listify(experiments)
 
     def transform(data: pd.DataFrame) -> None:
-        data[diff_col] = data["Experiment Name"] + " - " + data[diff_col].astype(str)
+        if not data.empty:
+            data[diff_col] = data["Experiment Name"] + " - " + data[diff_col].astype(str)
 
     do_transform = False
-    if len(experiments) > 1:
+    if len([exp for exp in experiments if not isinstance(exp, SimulatedExperiment)]) > 1:
         diff_col = kwargs.get("hue") or kwargs.get("tile")
         if diff_col is None:
             kwargs["hue"] = "Experiment Name"
@@ -140,6 +141,7 @@ def _bode_adjust_axes_kind(axes: np.ndarray, y_axis: str, tile_vals):
 def bode(
     exps: Experiment | list[Experiment],
     title: str | None = None,
+    *,
     offset_correct: bool = False,
     show_regions: bool | Iterable[str] = False,
     phase_clip: tuple[float, float] | bool = False,
@@ -148,8 +150,6 @@ def bode(
     
     # Prepare the data
     data = _combine_experiment_data(exps, lambda x: x.data, kwargs=kwargs)
-    if show_regions:
-        region_data = _combine_experiment_data(exps, lambda e: e.analysis.regions.data, kwargs=kwargs)
     assert isinstance(data, pd.DataFrame)
 
     # Check which components to plot 
@@ -213,8 +213,9 @@ def bode(
         if isinstance(phase_clip, bool) and phase_clip:
             phase_clip = (-90, 0)
         if isinstance(phase_clip, tuple):
+            ticks = np.linspace(*phase_clip, 5)
             for ax in phase_axes.flat:
-                ax.set_ylim(phase_clip)
+                ax.set(ylim=phase_clip, yticks=ticks)
 
         fig.set_layout_engine("constrained")
 

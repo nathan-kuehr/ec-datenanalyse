@@ -96,6 +96,20 @@ class Experiment(SampleContainer):
         self._reload_data()
 
         return self
+    
+    def sort(self, column: str) -> Experiment:
+        if column not in self.data.columns:
+            raise KeyError(f"Cannot sort by '{column}' - column does not exist in data.")
+
+        view = self.data[["Sample Name", column]].drop_duplicates()
+        if len(view) != len(self._samples):
+            raise ValueError("Cannot sort over measurement data - use grouping columns instead!")
+
+        sorted_idc = view[column].argsort()
+        self._samples = [self._samples[i] for i in sorted_idc]
+        self._reload_data()
+
+        return self
 
     def extract_subexp(
         self, group: str, value: str, name: str | None = None, color: str | None = None
