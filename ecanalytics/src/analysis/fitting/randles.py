@@ -12,11 +12,10 @@ from pyimpspec import (
     Resistor,
     WarburgOpen,
     ConstantPhaseElement,
-    generate_fit_identifiers
 )
 from scipy import stats
 
-from .model import Model, _iterate_elements
+from .model import Model
 from .stage import FittingStage, FittingProcedure
 from ...config import (
     FITTING_DEFAULT_INITIAL_VALUES,
@@ -28,7 +27,7 @@ _logger = logging.getLogger(__name__)
 
 
 _WARBURG_N_UPPER_LIMIT = 0.5
-_TAU_PEAK_TOLERANCE = (10 ** (1/10)) ** 2 # Two deci-decades
+_TAU_PEAK_TOLERANCE = 10 ** 0.2 # Two deci-decades
 
 
 class Randles(Model):
@@ -39,7 +38,7 @@ class Randles(Model):
 
     # Override abstract
     def _build(self) -> Circuit:
-        r_s = Resistor().set_label("s")
+        r_s = Resistor().set_label("s").set_lower_limits(R=-np.inf)
         r_ct = Resistor().set_label("ct")
         q_dl = ConstantPhaseElement().set_label("dl")
         w_diff = (
@@ -57,43 +56,64 @@ class Randles(Model):
         if self._charac_peak_tau is None:
             return None
         
-        # Get lengths
-        data = exp.data
-
         # Get data frames
+        data = exp.data
         peak_data = exp.analysis.drt.peak_select([self._charac_peak_tau])
-        diffusive_masks = exp.analysis.regions.make_mask(region="diffusive", overlay_valid=True)
+        regions_data = exp.analysis.regions.data
 
-        r_s = data.merge(
-            exp.analysis.regions.data,
-            left_on=["Sample Name", "Frequency"],
-            right_on=["Sample Name", "HF Artefact Threshold Frequency"],
-            how="inner"
-        )["Resistance"]
+        # Get only the 90° diffusive region
+        diffusive_masks = exp.analysis.regions.make_mask(region="diffusive:90", overlay_valid=True)
 
+        # Guess R_s as the x-axis offset for capacitive frequencies
+        r_s = regions_data.merge(
+            data,
+            left_on=["Sample Name", "Capacitive Limit"],
+            right_on=["Sample Name", "Frequency"],
+            how="left",
+        )["Resistance"].to_numpy()
+
+        # Estimate R_ct from the DRT polarization
         r_ct = (
             peak_data["Polarisation"].to_numpy()
             * FITTING_DRT_POLARIZATION_CORRECTION_FACTOR
         )
 
+        # No estimation for n_dl yet 
         n_dl = np.ones_like(r_ct) * FITTING_DEFAULT_INITIAL_VALUES["randles"]["n_dl"]
 
+        # Calculate Y_dl from the relaxation time and the polarization
         taus = 10 ** peak_data["Log. Position"].to_numpy()
-        y_dl = np.power(taus, n_dl) / r_ct
+        y_dl = (taus ** n_dl) / r_ct
+        
+        # Estimate B_diff from the kink 45°->90°. If no kink is found, it is shadowed by semicircle
+        # -> use semicircle tau as estimation
+        secondary_kink = regions_data["Secondary Kink"].to_numpy(dtype=float)
+        secondary_kink = np.where(
+            np.isnan(secondary_kink), 1 / (2 * np.pi * taus), secondary_kink
+        )
+        b_diff = 4 / (2 * np.pi * secondary_kink)
 
-        b_diff = np.ones_like(r_ct) * FITTING_DEFAULT_INITIAL_VALUES["randles"]["B_diff"]
-        y_diff = np.ones_like(r_ct) * FITTING_DEFAULT_INITIAL_VALUES["randles"]["Y_diff"]
-
-        n_diff = []
+        n_diff, q_diff = [], []
         for (_, group), mask in zip(data.groupby("Sample Name", sort=False), diffusive_masks):
-            impedance_data = group[["Resistance", "Neg. Reactance"]].to_numpy()
+            masked_group = group[mask]
+
+            freqs = masked_group["Frequency"].to_numpy()
+            neg_reactance = masked_group["Neg. Reactance"].to_numpy()
+            resistance = masked_group["Resistance"].to_numpy()
 
             # Fit ΔR / ΔX rather than ΔX / ΔR for stability as we approach 90°
             m_inv = stats.linregress(
-                x=impedance_data[mask, 1],
-                y=impedance_data[mask, 0],
+                x=neg_reactance,
+                y=resistance,
             ).slope
-            n_diff.append((np.arctan(1 / m_inv) / np.pi) if m_inv != 0.0 else 0.5)
+            n = np.arctan(1 / m_inv) / np.pi if m_inv != 0.0 else 0.5
+
+            q = np.mean(np.sin(n*np.pi) / (neg_reactance * np.power(2 * np.pi * freqs, 2*n)))
+
+            n_diff.append(n)
+            q_diff.append(q)
+
+        y_diff = (np.array(q_diff) ** (1 / np.array(n_diff))) / b_diff
 
         return pd.DataFrame({
             "R_s": r_s,
@@ -126,7 +146,13 @@ class Randles(Model):
             for tau in taus:
                 constraints.append(dict(
                     constraint_expressions=ces,
-                    constraint_variables={"tau_r": {"value": tau,"min": tau / _TAU_PEAK_TOLERANCE,"max":   _TAU_PEAK_TOLERANCE * tau,"vary":  True},
+                    constraint_variables={
+                        "tau_r": {
+                            "value": tau,
+                            "min": tau / _TAU_PEAK_TOLERANCE,
+                            "max": _TAU_PEAK_TOLERANCE * tau,
+                            "vary": True,
+                        },
                     },
                 ))
         else:
@@ -165,5 +191,8 @@ class Randles(Model):
 
         # Add diffusion derived parameters
         parameters["Q_diff"] = (parameters["B_diff"] * parameters["Y_diff"]) ** parameters["n_diff"]
+        
+        exp = 1 / (2 * parameters["n_diff"]) - 1
+        parameters["C_diff"] = np.sqrt(parameters["B_diff"] * parameters["Y_diff"]) * ((parameters["R_ct"] + parameters["R_s"]) ** exp) # Apply Hsu Mansfeld
 
         return parameters

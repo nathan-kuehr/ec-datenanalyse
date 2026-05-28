@@ -9,7 +9,15 @@ def _draw_markers(axes: Iterable[Axes], data: pd.DataFrame, region_data: pd.Data
     if not show_regions:
         return
     elif isinstance(show_regions, bool):
-        show_regions = ["Kink Frequency", "HF Artefact Threshold Frequency", "LF Artefact Threshold Frequency"]
+        show_regions = ["Main Kink", "Secondary Kink", "HF Artefact", "LF Artefact"]
+
+    styles = {
+        "Main Kink":      {"color": "tab:blue",   "linestyle": "--"},
+        "Secondary Kink": {"color": "tab:cyan",   "linestyle": ":"},
+        "HF Artefact":    {"color": "tab:red",    "linestyle": "-."},
+        "LF Artefact":    {"color": "tab:orange", "linestyle": "-."},
+    }
+    default_style = {"color": "k", "linestyle": "-."}
 
     grouped = core._prepare_groupby(region_data, {"tile": kwargs.get("tile")})
 
@@ -23,5 +31,6 @@ def _draw_markers(axes: Iterable[Axes], data: pd.DataFrame, region_data: pd.Data
 
             vals = view[x][mask].unique()
 
+            style = styles.get(region, default_style)
             for v in vals:
-                ax.axvline(v, linewidth=0.75, zorder=0, linestyle="-.", color="k")
+                ax.axvline(v, linewidth=0.75, zorder=0, **style)
