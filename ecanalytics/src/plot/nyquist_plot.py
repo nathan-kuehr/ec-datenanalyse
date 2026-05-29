@@ -27,12 +27,6 @@ _ERRORBAR_FILL_ALPHA = 0.1
 _ERRORBAR_EDGE_LINEWIDTH = 0.5
 
 
-def _clean_nyquist_args(kwargs: dict) -> dict:
-    return core._clean_args(
-        kwargs, ["data", "title", "Rmin", "Rspan", "offset_correct", "tile"]
-    )
-
-
 def _draw_inset_axes(data: pd.DataFrame, ax: Axes, kwargs: dict) -> Axes:
     with plt.rc_context(FIGURE_SETTINGS):
         inset: Axes = ax.inset_axes(_INSET_AXES_BOUNDS)
@@ -147,7 +141,6 @@ def nyquist(
         "x": x_axis,
         "y": "Neg. Reactance",
         "title": title,
-        "no_save": True,
         "series_info": Experiment.SERIES_INFO,
     }
     kwargs = DEFAULT_LINEPLOT_SETTINGS | kwargs | config
@@ -176,11 +169,13 @@ def nyquist(
 
     tile_config = {"tile": kwargs.get("tile")}
     tile_grouped = core._prepare_groupby(df, tile_config)
-    
+
     if (errorbar := kwargs.get("errorbar")) is not None:
         covvis = _prepare_covvis(tile_grouped, kwargs)
 
-    with (res := core.lineplot(mean_data, **kwargs)) as (fig, ax):
+    res = core.lineplot(mean_data, **kwargs)
+
+    with res as (fig, ax):
         if (grid := res.get_meta("grid")) is not None:
             assert isinstance(grid, FacetGrid)
 
@@ -200,7 +195,7 @@ def nyquist(
 
             fig.set_layout_engine("constrained")
 
-            axes = grid.axes.flat
+            axes = list(grid.axes.flat)
         else:
             assert isinstance(ax, Axes)
 
@@ -219,24 +214,17 @@ def nyquist(
 
             axes = [ax]
 
-    if show_regions:
-        real_exps = [exp for exp in _listify(data) if not isinstance(exp, SimulatedExperiment)]
-        region_data = _combine_experiment_data(
-            real_exps, 
-            lambda e: e.analysis.regions.data,
-            kwargs=kwargs)
-        assert isinstance(region_data, pd.DataFrame)
+        if show_regions:
+            real_exps = [exp for exp in _listify(data) if not isinstance(exp, SimulatedExperiment)]
+            region_data = _combine_experiment_data(
+                real_exps, lambda e: e.analysis.regions.data, kwargs=kwargs
+            )
+            assert isinstance(region_data, pd.DataFrame)
 
-        region_plots._draw_markers(fig.axes, df, region_data, show_regions, x_axis, kwargs | tile_config)
+            region_plots._draw_markers(fig.axes, df, region_data, show_regions, x_axis, kwargs | tile_config)
 
+        if errorbar is not None:
+            for ax, cv in zip(axes, covvis):
+                _draw_nyquist_errorbars(ax, cv, kwargs)
 
-    if errorbar is not None:
-        for ax, cv in zip(axes, covvis):
-            _draw_nyquist_errorbars(ax, cv, kwargs)
-
-    kwargs = _clean_nyquist_args(kwargs)
-    kwargs = core._clean_plot_args(kwargs)
-
-    if grid is not None:
-        return PlotResult(title, fig, **kwargs).add_meta({"grid": grid})
-    return PlotResult(title, fig, **kwargs)
+    return res

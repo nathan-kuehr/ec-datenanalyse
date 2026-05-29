@@ -171,11 +171,11 @@ def _set_axes_from_series_info(
     ax.set(**config)
 
 
-def _iterate_legend(target: Axes | Figure, dummy: bool):
+def _iterate_legend(target: Axes | FacetGrid, dummy: bool):
     if isinstance(target, Axes):
         legend = target.get_legend()
-    elif isinstance(target, Figure):
-        legend = target.legends[0] if target.legends else None
+    elif isinstance(target, FacetGrid):
+        legend = target.legend
     else:
         return
 
@@ -193,6 +193,31 @@ def _iterate_legend(target: Axes | Figure, dummy: bool):
     for handle, text in zip(handles, texts):
         if dummy == is_dummy(handle):
             yield handle, text
+
+
+def _improve_legend(host: Axes | FacetGrid) -> None:
+    if isinstance(host, Axes):
+        legend = host.get_legend()
+        loc = "best"
+    elif isinstance(host, FacetGrid):
+        legend = host.legend
+        loc = "outside lower center"
+    else:
+        raise ValueError("Host must be an Axes or FacetGrid!")
+    
+    if legend is None:
+        return
+
+    ncols = 0
+    for _, text in _iterate_legend(host, dummy=True):
+        text.set_fontsize(plt.rcParams["legend.title_fontsize"])
+        text.set_ha("center")
+        ncols += 1
+    
+    ncols = max(ncols, len(legend.legend_handles) // 5, 1)
+    ncols = min(ncols, 4)
+
+    sns.move_legend(host, loc, ncol=ncols)
 
 
 def lineplot(
@@ -259,29 +284,14 @@ def lineplot(
             grid.set_titles(col_template="{col_name}")
             _set_axes_from_series_info(grid, x, y, series_info)
 
-            if grid.legend is not None:
-                ncols = 0
-                for _, text in _iterate_legend(fig, dummy=True):
-                    text.set_fontsize(plt.rcParams["legend.title_fontsize"])
-                    text.set_ha("center")
-                    ncols += 1
-
-
-                if ncols == 0:
-                    ncols = nexps
-                else:
-                    ncols = max(ncols, len(fig.legends[0].legend_handles) // 5)
-
-                ncols = min(ncols, 5)
-
-                sns.move_legend(grid, "outside lower center", ncol=ncols)
+            _improve_legend(grid)
 
             if title is not None:
                 fig.suptitle(title)
 
             fig.set_layout_engine("constrained")
 
-            return PlotResult(title, fig, **kwargs).add_meta({"grid": grid})  # pyright: ignore
+            return PlotResult(title, fig, **_clean_plot_args(kwargs)).add_meta({"grid": grid})  # pyright: ignore
         else:
             ax: Axes = sns_args.pop("ax", None) or plt.figure().gca()
             assert isinstance(fig := ax.figure, Figure)
@@ -290,27 +300,13 @@ def lineplot(
 
             _set_axes_from_series_info(ax, x, y, series_info)
 
-
-            if ax.get_legend() is not None:
-                ncols = 0
-                for _, text in _iterate_legend(ax, dummy=True):
-                    text.set_fontsize(plt.rcParams["legend.title_fontsize"])
-                    text.set_ha("center")
-                    ncols += 1
-
-                if ncols == 0:
-                    ncols = nexps
-                else:
-                    ncols = max(ncols, len(fig.legends[0].legend_handles) // 5)
-
-                ncols = min(ncols, 5)
-                
-                sns.move_legend(ax, "best", ncol=ncols)
+            _improve_legend(ax)
 
             if title is not None:
                 ax.set_title(title)
 
-            return PlotResult(title, fig, **kwargs)  # pyright: ignore
+            return PlotResult(title, fig, **_clean_plot_args(kwargs))  # pyright: ignore
+
 
 
 def joint_distribution_plot(
