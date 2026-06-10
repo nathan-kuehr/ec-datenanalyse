@@ -9,7 +9,6 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.ticker import ScalarFormatter
-from matplotlib.lines import Line2D
 
 
 class _EngScalarFormatter(ScalarFormatter):
@@ -34,6 +33,8 @@ from ..palette import NEIColorPalette
 from ..config import (
     FIGURE_SETTINGS,
     DEFAULT_LINEPLOT_SETTINGS,
+    DEFAULT_SCATTERPLOT_GRID_SETTINGS,
+    DEFAULT_SCATTERPLOT_SETTINGS,
     DEFAULT_JOINT_DISTRIBUTION_PLOT_SETTINGS,
     DataSeriesInfo,
     PARAMETER_PLOT_FIGURE_SETTINGS,
