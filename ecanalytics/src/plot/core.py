@@ -189,7 +189,10 @@ def _iterate_legend(target: Axes | FacetGrid, dummy: bool):
 
     def is_dummy(artist: Artist | None) -> bool:
         if isinstance(artist, Line2D):
-            return artist.get_linewidth() == 0.0
+            if artist.get_linestyle() == 'None':
+                return artist.get_markersize() == 0.0
+            else:
+                return artist.get_linewidth() == 0.0
         return False
 
     handles = legend.legend_handles
