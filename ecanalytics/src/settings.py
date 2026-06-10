@@ -1,118 +1,70 @@
-import os
-from copy import deepcopy
-
+from __future__ import annotations
 from .data.experiment import Experiment
 
 
+FACTORY_DEFAULTS = {
+    "output_folder": "./vis",
+    "export_formats": {"svg", "pdf"},
+    "dpi": 300,
+    "show_on_save": True,
+}
+VALID_EXPORT_FORMATS = {"svg", "pdf", "png", "jpg"}
+
+
 class Settings:
+    Keys = tuple(FACTORY_DEFAULTS)
     def __init__(self, **kwargs) -> None:
-        self.output_folder = kwargs.get(
-            "output_folder", _global_default_settings.output_folder
-        )
-        self.export_formats = kwargs.get(
-            "export_formats", _global_default_settings.export_formats
-        )
-        self.dpi = kwargs.get("dpi", _global_default_settings.dpi)
-        self.show_on_save = kwargs.get(
-            "show_on_save", _global_default_settings.show_on_save
-        )
+        for key in self.Keys:
+            setattr(self, key, kwargs.get(key, getattr(_global_defaults, key)))
+
+    @classmethod
+    def _from_defaults(cls) -> Settings:
+        obj = cls.__new__(cls)
+        for key, value in FACTORY_DEFAULTS.items():
+            setattr(obj, key, value)
+        return obj
 
     @property
     def output_folder(self) -> str:
-        """Folder path for exported plots."""
         return self._output_folder
 
     @output_folder.setter
     def output_folder(self, folder_path: str) -> None:
-        """Sets the global output folder for exports.
-
-        Args:
-            folder_path: Path to the output folder
-        """
-        if not os.path.isdir(folder_path):
-            os.makedirs(folder_path, exist_ok=True)
-
         self._output_folder = folder_path
 
     @property
     def export_formats(self) -> set[str]:
-        """Set of file extensions for export formats."""
         return self._export_formats
 
     @export_formats.setter
-    def export_formats(self, formats: set[str]) -> None:
-        """Sets the default export formats.
-
-        Args:
-            formats: Set of file extensions (e.g., {"svg", "pdf"})
-        """
-        self._export_formats = formats & {"svg", "pdf", "png", "jpg"}
-
+    def export_formats(self, formats) -> None:
+        self._export_formats = set(formats) & VALID_EXPORT_FORMATS
+    
     @classmethod
     def clean_kwargs(cls, kwargs: dict, other_keys_to_remove: set[str] = set()) -> dict:
-        """Cleans the kwargs dictionary by removing settings related keys.
-
-        Args:
-            kwargs: Original kwargs dictionary
-
-        Returns:
-            Cleaned kwargs dictionary
-        """
-        keys_to_remove = {
-            "output_folder",
-            "export_formats",
-            "dpi",
-            "show_on_save",
-        } | other_keys_to_remove
-        return {k: v for k, v in kwargs.items() if k not in keys_to_remove}
+        remove = set(cls.Keys) | set(other_keys_to_remove)
+        return {k: v for k, v in kwargs.items() if k not in remove}
 
 
-# Create a global default settings instance
-_static_global_default_settings = Settings.__new__(Settings)
-
-_static_global_default_settings._output_folder = "./vis"
-_static_global_default_settings._export_formats = {"svg", "pdf"}
-_static_global_default_settings.dpi = 300
-_static_global_default_settings.show_on_save = True
-
-_global_default_settings = deepcopy(_static_global_default_settings)
+_global_defaults = Settings._from_defaults()
 
 
 def _set(**kwargs) -> None:
-    if "output_folder" in kwargs:
-        _global_default_settings.output_folder = kwargs["output_folder"]
-
-    if "export_formats" in kwargs:
-        _global_default_settings.export_formats = kwargs["export_formats"]
-
-    if "dpi" in kwargs:
-        _global_default_settings.dpi = kwargs["dpi"]
-
-    if "show_on_save" in kwargs:
-        _global_default_settings.show_on_save = kwargs["show_on_save"]
+    """Override one or more global default settings."""
+    for key in Settings.Keys:
+        if key in kwargs:
+            setattr(_global_defaults, key, kwargs[key])
 
 
 def _reset(args: set) -> None:
-    if not isinstance(args, set):
+    """Reset the named settings (and/or tracked Experiments) to their factory defaults."""
+    if not isinstance(args, (set, frozenset, list, tuple)):
         args = {args}
+    args = set(args)
 
-    if "output_folder" in args:
-        _global_default_settings.output_folder = (
-            _static_global_default_settings.output_folder
-        )
-
-    if "export_formats" in args:
-        _global_default_settings.export_formats = (
-            _static_global_default_settings.export_formats
-        )
-
-    if "dpi" in args:
-        _global_default_settings.dpi = _static_global_default_settings.dpi
-
-    if "show_on_save" in args:
-        _global_default_settings.show_on_save = (
-            _static_global_default_settings.show_on_save
-        )
+    for key in Settings.Keys:
+        if key in args:
+            setattr(_global_defaults, key, FACTORY_DEFAULTS[key])
 
     if Experiment in args:
         Experiment.reset_tracked_objects()
