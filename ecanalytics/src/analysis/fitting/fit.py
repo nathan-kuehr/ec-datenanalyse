@@ -70,7 +70,7 @@ def _cached_fit_circuit(
 class Fit:
     SERIES_INFO = FITTING_RANDLES_SERIES_INFO
     _DEFAULT_CALCULATION_ARGS = {
-        "method": "least_squares",
+        "method": "powell",
         "weight": "boukamp",
         "max_nfev": -1,  # Unlimited
         "num_procs": 1,

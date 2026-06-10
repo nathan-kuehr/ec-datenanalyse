@@ -38,7 +38,7 @@ class Randles(Model):
 
     # Override abstract
     def _build(self) -> Circuit:
-        r_s = Resistor().set_label("s").set_lower_limits(R=-np.inf)
+        r_s = Resistor().set_label("s")
         r_ct = Resistor().set_label("ct")
         q_dl = ConstantPhaseElement().set_label("dl")
         w_diff = (
