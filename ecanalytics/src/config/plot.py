@@ -39,7 +39,10 @@ DEFAULT_LINEPLOT_SETTINGS = {
     "sort": False,
 }
 
-DEFAULT_JOINT_DISTRIBUTION_PLOT_SETTINGS = {"marginal_kws": {"common_norm": False}}
+DEFAULT_SCATTERPLOT_SETTINGS = {}
+DEFAULT_SCATTERPLOT_GRID_SETTINGS = {}
+
+DEFAULT_JOINT_DISTRIBUTION_PLOT_SETTINGS = {"marginal_kws": {"bins": 30, "legend": False, "common_norm": False, "stat": "probability"}}
 
 COVVIS_ANGLE_STEPS = 1
 COVVIS_INTERPOLATION_POINTS = 30
