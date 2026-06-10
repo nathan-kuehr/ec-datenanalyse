@@ -53,9 +53,8 @@ class PlotResult:
         return self._title
 
     @title.setter
-    def title(self, title: str | None) -> "PlotResult":
+    def title(self, title: str | None) -> None:
         self._title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot")
-        return self
 
     def show(self) -> "PlotResult":
         self._showfig_func()
@@ -63,6 +62,8 @@ class PlotResult:
         return self
 
     def save(self) -> "PlotResult":
+        os.makedirs(self._settings.output_folder, exist_ok=True)
+
         for ext in self._settings.export_formats:
             export_path = os.path.join(
                 self._settings.output_folder, f"{self._title}.{ext}"
@@ -98,8 +99,8 @@ class PlotResult:
     def has_meta(self, key: str) -> bool:
         return key in self._meta
 
-    def get_meta(self, key: str) -> Any | None:
-        return self._meta.get(key)
+    def get_meta(self, key: str) -> Any:
+        return self._meta[key]
 
     @staticmethod
     def clean_kwargs(kwargs: dict) -> dict:

@@ -49,8 +49,8 @@ def fitted_parameters(
 def _get_all_lines(res: PlotResult) -> Iterable[Line2D]:
     ax: Axes
 
-    if (grid := res.get_meta("grid")) is not None:
-        assert isinstance(grid, FacetGrid)
+    if res.has_meta("grid"):
+        grid: FacetGrid = res.get_meta("grid")
 
         for ax in grid.axes.flat:
             yield from ax.get_lines()

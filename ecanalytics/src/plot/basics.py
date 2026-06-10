@@ -186,7 +186,7 @@ def bode(
 
     res = core.lineplot(**config)
     with res as (fig, _):
-        assert isinstance(grid := res.get_meta("grid"), FacetGrid)
+        grid: FacetGrid = res.get_meta("grid")
 
         # Half the height
         w, h = fig.get_size_inches()

@@ -88,8 +88,8 @@ def drt(
         **kwargs,
     )
     with res as (fig, ax):
-        if (grid := res.get_meta("grid")) is not None:
-            assert isinstance(grid, FacetGrid)
+        if res.has_meta("grid"):
+            grid: FacetGrid = res.get_meta("grid")
 
             def _draw_facet_sampled_peaks(data: pd.DataFrame, **_) -> None:
                 samples = data["Sample Name"].unique()

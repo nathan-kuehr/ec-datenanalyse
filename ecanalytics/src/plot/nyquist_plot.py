@@ -176,8 +176,8 @@ def nyquist(
     res = core.lineplot(mean_data, **kwargs)
 
     with res as (fig, ax):
-        if (grid := res.get_meta("grid")) is not None:
-            assert isinstance(grid, FacetGrid)
+        if res.has_meta("grid"):
+            grid: FacetGrid = res.get_meta("grid")
 
             fig.set_layout_engine("tight")
             grid.set(
