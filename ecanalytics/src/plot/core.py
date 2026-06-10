@@ -75,19 +75,24 @@ def _prepare_groupby(
 
 
 def _prepare_palette(data: pd.DataFrame, kwargs: dict) -> dict:
-    palette: list[str] = []
+    mapping = dict()
+    hue_col = kwargs.get("hue")
 
     for pal, group in data.groupby("Palette", sort=False):
-        n = _prepare_groupby(
-            group, {"hue": kwargs.get("hue")}
-        ).ngroups
-        palette += pal.shade(n)  # pyright: ignore
+        grouped = _prepare_groupby(group, {"hue": hue_col})
 
-    if len(palette) > 1:
-        return {"palette": palette}
-    else:
+        keys = grouped.groups.keys()
+        shades = pal.shade(len(keys))  # pyright: ignore
+
+        mapping |= dict(zip(keys, shades))
+
+    if hue_col is None or len(mapping) <= 1:
         kwargs.pop("hue", None)
-        return {"color": palette[0]}
+
+        val, *_ = mapping.values()
+        return {"color": val}
+    else:
+        return {"palette": mapping}
 
 
 # ===================== ARGS =====================
