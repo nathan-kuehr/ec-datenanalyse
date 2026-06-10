@@ -203,7 +203,7 @@ def _iterate_legend(target: Axes | FacetGrid, dummy: bool):
             yield handle, text
 
 
-def _improve_legend(host: Axes | FacetGrid) -> None:
+def _improve_legend(host: Axes | FacetGrid, ncols: int | None = None) -> None:
     if isinstance(host, Axes):
         legend = host.get_legend()
         loc = "best"
@@ -216,7 +216,11 @@ def _improve_legend(host: Axes | FacetGrid) -> None:
     if legend is None:
         return
 
-    ncols = 0
+    ndummys = sum(1 for _ in _iterate_legend(host, dummy=True))
+    ncols = ncols or max(ndummys, len(legend.legend_handles) // 3)
+
+    sns.move_legend(host, loc, ncol=ncols)
+
     for _, text in _iterate_legend(host, dummy=True):
         text.set_fontsize(plt.rcParams["legend.title_fontsize"])
         text.set_ha("center")
