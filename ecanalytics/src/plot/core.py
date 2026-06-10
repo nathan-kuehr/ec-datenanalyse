@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.ticker import ScalarFormatter
 from matplotlib.lines import Line2D
 
@@ -224,26 +225,30 @@ def _improve_legend(host: Axes | FacetGrid, ncols: int | None = None) -> None:
     for _, text in _iterate_legend(host, dummy=True):
         text.set_fontsize(plt.rcParams["legend.title_fontsize"])
         text.set_ha("center")
-        ncols += 1
-    
-    ncols = max(ncols, len(legend.legend_handles) // 5, 1)
-    ncols = min(ncols, 4)
 
-    sns.move_legend(host, loc, ncol=ncols)
-
-
-def lineplot(
+def _coreplot(
     data: pd.DataFrame,
+    kind: str,
     x: str,
     y: str,
-    title: str | None = None,
-    series_info: dict[str, DataSeriesInfo] = {},
-    **kwargs,
+    title: str | None,
+    series_info: dict[str, DataSeriesInfo],
+    default_settings: dict,
+    default_grid_settings: dict,
+    kwargs: dict
 ) -> PlotResult:
     config = {"data": data, "x": x, "y": y}
 
+    # Get the native plot handler from seaborn
+    if kind == "line":
+        sns_plot_func = sns.lineplot
+    elif kind == "scatter":
+        sns_plot_func = sns.scatterplot
+    else:
+        raise ValueError(f"Unsupported plot kind '{kind}'!")
+
     # Prepare args
-    sns_args = _merge_kwargs(DEFAULT_LINEPLOT_SETTINGS, kwargs) | config
+    sns_args = _merge_kwargs(default_settings, kwargs) | config
     sns_args = Settings.clean_kwargs(sns_args)
     sns_args = PlotResult.clean_kwargs(sns_args)
 
@@ -271,7 +276,9 @@ def lineplot(
         if sns_args.get("ax") is not None:
             raise ValueError("Cannot pass 'ax' parameter along with facet args!")
         
-        sns_args = _merge_kwargs(DEFAULT_LINEPLOT_GRID_SETTINGS, sns_args)
+        sns_args = _merge_kwargs(default_grid_settings, sns_args) | {
+            "kind": kind
+        }
 
         # By default, set a color if columns are specified
         sns_args["hue"] = sns_args.get("hue") or sns_args.get("col")
@@ -281,8 +288,6 @@ def lineplot(
         
     # Set palette (overridable)
     sns_args = _prepare_palette(data, sns_args) | sns_args
-
-    nexps = data["Experiment Name"].nunique()
 
     # Adapt title size if multiple axes passed
     if ("ax" in kwargs and len(kwargs["ax"].figure.axes) > 1) or make_grid:
@@ -308,7 +313,7 @@ def lineplot(
             ax: Axes = sns_args.pop("ax", None) or plt.figure().gca()
             assert isinstance(fig := ax.figure, Figure)
 
-            sns.lineplot(**sns_args, ax=ax)
+            sns_plot_func(**sns_args, ax=ax)
 
             _set_axes_from_series_info(ax, x, y, series_info)
 
@@ -319,7 +324,72 @@ def lineplot(
 
             return PlotResult(title, fig, **_clean_plot_args(kwargs))  # pyright: ignore
 
+def lineplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str | None = None,
+    series_info: dict[str, DataSeriesInfo] = {},
+    **kwargs,
+) -> PlotResult:
+    return _coreplot(
+        data=data, 
+        kind="line", 
+        x=x, 
+        y=y, 
+        title=title, 
+        series_info=series_info,
+        default_settings=DEFAULT_LINEPLOT_SETTINGS,
+        default_grid_settings=DEFAULT_LINEPLOT_GRID_SETTINGS,
+        kwargs=kwargs
+    )
 
+def scatterplot(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    title: str | None = None,
+    series_info: dict[str, DataSeriesInfo] = {},
+    **kwargs,
+) -> PlotResult:
+    return _coreplot(
+        data=data, 
+        kind="scatter", 
+        x=x, 
+        y=y, 
+        title=title, 
+        series_info=series_info,
+        default_settings=DEFAULT_SCATTERPLOT_SETTINGS,
+        default_grid_settings=DEFAULT_SCATTERPLOT_GRID_SETTINGS,
+        kwargs=kwargs
+    )
+
+def _joint_distribution_add_marginals(
+    data: pd.DataFrame, 
+    cols: tuple[str, str],
+    marg_axes: list[tuple[Axes, Axes]], 
+    bins: tuple[np.ndarray, np.ndarray],
+    kwargs: dict, 
+    **__
+):
+    with plt.rc_context(FIGURE_SETTINGS):
+        ax = plt.gca()
+        fig = ax.figure
+        assert isinstance(fig, Figure)
+
+        ref_margs = marg_axes[0] if marg_axes else (None, None)
+
+        margx = ax.inset_axes((0, 1.03, 1, 0.25), sharex=ax, sharey=ref_margs[0])
+        margy = ax.inset_axes((1.03, 0, 0.25, 1), sharey=ax, sharex=ref_margs[1])
+
+        margs = (margx, margy)
+
+        for dim, marg, col, bin in zip(("x", "y"), margs, cols, bins):
+            sns.histplot(data, **{dim: col}, ax=marg, bins=bin, **kwargs)
+            marg.tick_params(labelbottom=False, labelleft=False, left=False, bottom=False)
+            marg.set(xlabel="", ylabel="")
+
+        marg_axes.append((margx, margy))
 
 def joint_distribution_plot(
     data: pd.DataFrame,
@@ -329,48 +399,55 @@ def joint_distribution_plot(
     series_info: dict[str, DataSeriesInfo] = {},
     **kwargs,
 ) -> PlotResult:
-    config = {
-        "x": x,
-        "y": y,
-        # Need to add here because the joint plot swallows the data
-        "joint_kws": {"data": data},
-        "marginal_kws": {"data": data},
-    }
-    palette = _prepare_palette(data, kwargs)
+    config = _merge_kwargs(DEFAULT_JOINT_DISTRIBUTION_PLOT_SETTINGS, kwargs)
 
-    sns_args = _merge_kwargs(
-        DEFAULT_JOINT_DISTRIBUTION_PLOT_SETTINGS,
-        _merge_kwargs(kwargs, config | palette),
-    )
+    # Prepare the args for the marginal plots
+    marginal_kws = config.pop("marginal_kws") | {"hue": config.get("hue")}
+    marginal_kws |= _prepare_palette(data, marginal_kws)
 
-    sns_args = Settings.clean_kwargs(sns_args)
-    sns_args = PlotResult.clean_kwargs(sns_args)
+    # Prepare equal binning
+    bins = marginal_kws.pop("bins")
+    bins = tuple(np.histogram_bin_edges(data[dim], bins) for dim in (x, y))
+    
+    # Prepare axes lists
+    joint_axes: list[Axes] = []
+    marginal_axes: list[tuple[Axes, Axes]] = []
 
-    if "ax" in sns_args:
-        raise ValueError("'ax' parameter not supported for joint distribution plots!")
+    res = scatterplot(data, x, y, title, series_info, **config)
+    with res as (fig, ax):
+        if res.has_meta("grid"):
+            grid: FacetGrid = res.get_meta("grid")
 
-    with plt.rc_context(FIGURE_SETTINGS | {"figure.constrained_layout.use": False}):
-        joint = sns.jointplot(data, **sns_args)
+            joint_axes = list(grid.axes.flat)
+            
+            fig.set_layout_engine("tight")
+            grid.map_dataframe(_joint_distribution_add_marginals, 
+                data=data,
+                cols=(x, y),
+                marg_axes=marginal_axes,
+                bins=bins,
+                kwargs=marginal_kws
+            )
+            _set_axes_from_series_info(grid, x, y, series_info)
+            fig.set_layout_engine("constrained")
+        else:
+            assert isinstance(ax, Axes)
 
-        fig = joint.figure
-        joint_ax = fig.axes[0]
-        marginal_axes = fig.axes[1:]
+            joint_axes = fig.axes
+            plt.sca(ax)
+            _joint_distribution_add_marginals(
+                data=data,
+                cols=(x, y),
+                marg_axes=marginal_axes,
+                bins=bins,
+                kwargs=marginal_kws
+            )
+            _set_axes_from_series_info(ax, x, y, series_info)
 
-        _set_axes_from_series_info(joint_ax, x, y, series_info)
-
-        for _, text in _iterate_legend(joint_ax, dummy=True):
-            text.set_fontsize(plt.rcParams["legend.title_fontsize"])
-            text.set_ha("center")
-
-        for m_ax in marginal_axes:
-            m_ax.grid(False)
-
-        if title is not None:
-            fig.suptitle(title)
-
-        fig.set_layout_engine("constrained")
-
-    return PlotResult(title, fig, **kwargs).add_meta({"jointplot": joint})
+    return res.add_meta({
+        "joint_axes": joint_axes,
+        "marginal_axes": marginal_axes
+    })
 
 
 def parameter_plot(
