@@ -219,7 +219,7 @@ def _improve_legend(host: Axes | FacetGrid, ncols: int | None = None) -> None:
         return
 
     ndummys = sum(1 for _ in _iterate_legend(host, dummy=True))
-    ncols = ncols or max(ndummys, len(legend.legend_handles) // 3)
+    ncols = max(1, ncols or max(ndummys, len(legend.legend_handles) // 3))
 
     sns.move_legend(host, loc, ncol=ncols)
 

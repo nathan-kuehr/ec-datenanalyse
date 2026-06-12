@@ -1,9 +1,12 @@
 from __future__ import annotations
+
+import os
+
 from .data.experiment import Experiment
 
 
 FACTORY_DEFAULTS = {
-    "output_folder": "./vis",
+    "output_folder": os.path.join(".", "vis"),
     "export_formats": {"svg", "pdf"},
     "dpi": 300,
     "show_on_save": True,

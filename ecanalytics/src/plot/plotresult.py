@@ -16,7 +16,7 @@ from . import core
 
 
 # Weak references to all currently alive but unsaved PlotResults
-_alive_unsaved: weakref.WeakSet["PlotResult"] = weakref.WeakSet()
+_alive_unsaved: weakref.WeakSet[PlotResult] = weakref.WeakSet()
 
 
 def _flush_unsaved_on_exit() -> None:
@@ -25,7 +25,6 @@ def _flush_unsaved_on_exit() -> None:
             result._cond_save()
         except Exception:
             pass
-
 
 atexit.register(_flush_unsaved_on_exit)
 
@@ -56,12 +55,12 @@ class PlotResult:
     def title(self, title: str | None) -> None:
         self._title = title or datetime.now().strftime("%Y-%m-%d_%H:%M:%S_Plot")
 
-    def show(self) -> "PlotResult":
+    def show(self) -> PlotResult:
         self._showfig_func()
         self._global_show_fig_func(block=True)
         return self
 
-    def save(self) -> "PlotResult":
+    def save(self) -> PlotResult:
         os.makedirs(self._settings.output_folder, exist_ok=True)
 
         for ext in self._settings.export_formats:
