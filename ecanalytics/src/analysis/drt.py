@@ -20,49 +20,49 @@ _PEAK_SIGMA_MAX = 10
 _PEAK_INFO_COLUMN_COUNT = 5
 
 # Monkey-patch the original parameter generation function to fight vanishing gradients
-    _original_generate_parameters = pa._generate_parameters
+_original_generate_parameters = pa._generate_parameters
 
-    def _make_generate_parameters_wrapper(taus: np.ndarray, sigma_multiplier: float = 3.0):
-        # Transform to logged x axis as in analyze_peaks()
-        x = np.log(taus)
-        x -= x.min()
-        x /= x.max()
+def _make_generate_parameters_wrapper(taus: np.ndarray, sigma_multiplier: float = 3.0):
+    # Transform to logged x axis as in analyze_peaks()
+    x = np.log(taus)
+    x -= x.min()
+    x /= x.max()
 
-        def patch(peaks, disallow_skew):
-            parameters, num_variables = _original_generate_parameters(
-                peaks, disallow_skew
+    def patch(peaks, disallow_skew):
+        parameters, num_variables = _original_generate_parameters(
+            peaks, disallow_skew
+        )
+
+        for i, (px, _) in enumerate(peaks):
+            neighbour_dist_left = (px - x[x < px][-1]) if np.any(x < px) else x[1] - x[0]
+            neighbour_dist_right = (x[x > px][0] - px) if np.any(x > px) else x[-1] - x[-2]
+
+            sigma_init = parameters[f"sigma_{i}"].value
+            # Alpha is 0 initialized, so ignore
+
+            widthl_init = max(sigma_multiplier * sigma_init, neighbour_dist_left)
+            widthr_init = max(sigma_multiplier * sigma_init, neighbour_dist_right)
+
+            if disallow_skew:
+                parameters.add(f"widthl_{i}", value=widthl_init, min=max(neighbour_dist_left, neighbour_dist_right))
+                parameters.add(f"widthr_{i}", expr=f"widthl_{i}") # symmetric, so follow left width
+            else:
+                parameters.add(f"widthl_{i}", value=widthl_init, min=neighbour_dist_left)
+                parameters.add(f"widthr_{i}", value=widthr_init, min=neighbour_dist_right)
+
+            # Deactivate alpha and sigma
+            parameters[f"sigma_{i}"].set(
+                vary=False,
+                expr=f"(2.0/{sigma_multiplier}) * (widthl_{i} * widthr_{i}) / (widthl_{i} + widthr_{i})",
+            )
+            parameters[f"alpha_{i}"].set(
+                vary=False,
+                expr=f"(widthl_{i} - widthr_{i}) / (widthl_{i} + widthr_{i})",
             )
 
-            for i, (px, _) in enumerate(peaks):
-                neighbour_dist_left = (px - x[x < px][-1]) if np.any(x < px) else x[1] - x[0]
-                neighbour_dist_right = (x[x > px][0] - px) if np.any(x > px) else x[-1] - x[-2]
+        return parameters, num_variables
 
-                sigma_init = parameters[f"sigma_{i}"].value
-                # Alpha is 0 initialized, so ignore
-
-                widthl_init = max(sigma_multiplier * sigma_init, neighbour_dist_left)
-                widthr_init = max(sigma_multiplier * sigma_init, neighbour_dist_right)
-
-                if disallow_skew:
-                    parameters.add(f"widthl_{i}", value=widthl_init, min=max(neighbour_dist_left, neighbour_dist_right))
-                    parameters.add(f"widthr_{i}", expr=f"widthl_{i}") # symmetric, so follow left width
-                else:
-                    parameters.add(f"widthl_{i}", value=widthl_init, min=neighbour_dist_left)
-                    parameters.add(f"widthr_{i}", value=widthr_init, min=neighbour_dist_right)
-
-                # Deactivate alpha and sigma
-                parameters[f"sigma_{i}"].set(
-                    vary=False,
-                    expr=f"(2.0/{sigma_multiplier}) * (widthl_{i} * widthr_{i}) / (widthl_{i} + widthr_{i})",
-                )
-                parameters[f"alpha_{i}"].set(
-                    vary=False,
-                    expr=f"(widthl_{i} - widthr_{i}) / (widthl_{i} + widthr_{i})",
-                )
-
-            return parameters, num_variables
-
-        return patch
+    return patch
 
 
 @parallel.CACHE.cache

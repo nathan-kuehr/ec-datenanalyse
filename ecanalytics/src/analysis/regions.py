@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import logging
 
 from scipy import signal as sig
 
@@ -8,9 +9,10 @@ import matplotlib.pyplot as plt
 from ._args import call_argument_parser
 from ..data.experiment import Experiment
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_SAVGOL_WINDOW = 11
 _SAVGOL_POLYORDER = 3
-_HF_ARTEFACT_SEARCH_SPREAD = 3
 
 def curvature(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     dx = np.gradient(x, axis=-1)
@@ -29,9 +31,17 @@ def smooth(x: np.ndarray) -> np.ndarray:
         x, window_length=_DEFAULT_SAVGOL_WINDOW, polyorder=_SAVGOL_POLYORDER, axis=-1
     )
 
+def descend(vec: np.ndarray, i: int) -> int:
+    while True:
+        j = min((k for k in (i-1, i, i+1) if 0 <= k < len(vec)), key=vec.__getitem__)
+        
+        if j == i:
+            return j
+        else:
+            i = j
 
 class Regions:
-    _DEFAULT_CALCULATION_ARGS = {"min_peak_prominence": 0.25}
+    _DEFAULT_CALCULATION_ARGS = {"a_minprom": 25.0, "a_minw": 2.0, "cap_angle": 70.0, "d_minprom": 0.15, "tail_angle_tol": 3}
 
     def __init__(self, root: Experiment) -> None:
         self._root = root
@@ -53,11 +63,11 @@ class Regions:
 
         # Exclusion regions define what "valid" removes -> never overlay them
         if region == "artefact:lf":
-            return f < col("LF Artefact", -np.inf)
+            return f < col("LF Artefact Onset", -np.inf)
         if region == "artefact:hf":
-            return f >= col("HF Artefact", np.inf)
+            return f > col("HF Artefact Limit", np.inf)
         if region == "inductive":
-            return f > col("Capacitive Limit", np.inf)
+            return f >= col("Inductive Limit", np.inf)
 
         valid = ~(
             self.make_mask("artefact:lf")
@@ -67,15 +77,16 @@ class Regions:
         if region == "valid":
             return valid
 
-        main, secondary = col("Main Kink", np.inf), col("Secondary Kink", np.inf)
         if region == "kinetic":
-            mask = f > col("Main Kink", -np.inf)
+            mask = f >= col("Kinetic Limit", np.inf)
         elif region == "diffusive":
-            mask = f <= main
-        elif region == "diffusive:45":
-            mask = (f <= main) & (f > secondary)
-        elif region == "diffusive:90":
-            mask = (f <= main) & (f <= secondary)
+            mask = f <= col("Diffusive Onset", -np.inf)
+        elif region == "diffusive:mass-transport":
+            mask = col("Mass Transport Resolvable", 0.0).astype(bool)
+            mask &= f <= col("Diffusive Onset", -np.inf)
+            mask &= f > col("Diffusive-Capacitive Onset", np.inf)
+        elif region == "diffusive:capacitive":
+            mask = f <= col("Diffusive-Capacitive Onset", np.inf)
         else:
             raise ValueError(f"Unknown region mask: {region!r}")
 
@@ -97,86 +108,87 @@ class Regions:
         nsamples, nfreqs = len(sample_names), len(freqs)
 
         # Get data
-        raw_magnitudes = self._root.data["Offset-Corrected Impedance"].to_numpy().reshape(nsamples, nfreqs)
-        raw_phases = self._root.data["Offset-Corrected Phase"].to_numpy().reshape(nsamples, nfreqs)
+        raw_rs = self._root.data["Offset-Corrected Resistance"].to_numpy().reshape(nsamples, nfreqs)
+        raw_xs = -self._root.data["Neg. Reactance"].to_numpy().reshape(nsamples, nfreqs)
 
+        # Smooth
+        smooth_rs, smooth_xs = smooth(raw_rs), smooth(raw_xs)
 
-        dfs = []
-        for sample_args, magn, phase, in zip(args_list, raw_magnitudes, raw_phases):
-            region: dict = {}
-            self._find_hf_artefact(region, magn=magn, phase=phase)
-            self._find_kink(region, magn=magn, phase=phase, min_peak_prominence=sample_args["min_peak_prominence"])
-            self._find_lf_artefact(region, phase=phase)
-            self._find_capacitive_limit(region, phase=phase)
+        # Use tangent angle to find transition between semicircle and diffusion part
+        phis = -np.degrees(np.arctan2(np.gradient(smooth_xs, axis=1), np.gradient(smooth_rs, axis=1)))
+        dphis = np.gradient(phis, axis=1)
 
-            dfs.append(pd.Series(region, dtype=pd.Int64Dtype()))
+        ## Point A: 
+        # -> transistion between semicircle and diffusion part
+        # A curvature based approach was used before but didn't work out as well
+        peaks = [
+            sig.find_peaks(-phi, prominence=args["a_minprom"], width=args["a_minw"])[0] 
+            for phi, args in zip(phis, args_list)
+        ]
+        CCs = np.array([peak[-1] if len(peak) else -1 for peak in peaks], dtype=int)
+
+        ## Point B:
+        # -> beginning of capacitive tail
+        # A first analysis was done using curvature peaks but this is easier
+        cap_angles = np.array([args["cap_angle"] for args in args_list])
+        cap_tail_mask = (phis >= cap_angles[:, None]) & (np.arange(nfreqs) > CCs[:, None])
+        EEs = np.where(np.any(cap_tail_mask, axis=1), np.argmax(cap_tail_mask, axis=1), -1).astype(int)
+
+        ## Point C:
+        # -> sometimes A is not perfectly well chosen but a bit too early.
+        # Take minimum between A and B
+        freq_indices = np.arange(nfreqs)
+        dsegment = (freq_indices[None, :] >= CCs[:, None]) & (freq_indices[None, :] < EEs[:, None])
+        DDs = np.argmax(np.where(dsegment, smooth_xs, -np.inf), axis=1)
+
+        ## Mass transport ? 
+        # -> if we see that there is a plateau in φ (<=> two peaks in dφ <=> a valley in -dφ), there is diffusive:mass transport region here
+        norm_dphis = dphis / np.max(np.where(dsegment, dphis, 1e-10), axis=1, keepdims=True)
+        nvalleys = np.array([
+            len(sig.find_peaks(-ndphi, prominence=args["d_minprom"])[0]) 
+            for ndphi, args in zip(norm_dphis, args_list)
+        ])
+        has_mass_transport = nvalleys > 0
+
+        ## Point D:
+        # -> sometimes we have weird HF artefacts
+        # Offset-corrected impedance (calculated directly here) shows local minumum
+        dmagns = np.gradient(np.hypot(smooth_rs, smooth_xs), axis=1)
+        phases = np.atan2(smooth_xs, smooth_rs)
         
+        # First iteration: find last negative dmagn
+        neg_dmagn_mask = (dmagns < 0) & (freq_indices < np.where(CCs < 0, nfreqs, CCs)[:, None])
+        BBs = np.where(neg_dmagn_mask, freq_indices, -1).max(axis=1)
+
+        # Second iteration: ascend into phase peak
+        BBs = np.array([e if e < 0 else descend(-phase, e) for phase, e in zip(phases, BBs)])
+
+        ## Point E:
+        # -> inductive artefacts
+        AAs = np.where(raw_xs > 0, freq_indices, -1).max(axis=1)
+
+        ## Point F:
+        tail_angle_tols = np.array([args["tail_angle_tol"] for args in args_list])
+
+        max_phis_idc = np.maximum(EEs, np.argmax(phis, axis=1))
+        max_phis = phis[np.arange(nsamples), max_phis_idc]
+
+        tail_drop_mask = ((phis < (max_phis - tail_angle_tols)[:, None])) & (freq_indices[None, :] > max_phis_idc[:, None])
+
+        Fs = np.where(tail_drop_mask, freq_indices, nfreqs).min(axis=1)
+
+        # Put everything together
         freqs_series = pd.Series(freqs)
-        region_idc_df = pd.DataFrame(dfs, dtype=pd.Int64Dtype())
-        region_df = region_idc_df.apply(lambda col: col.map(freqs_series))
 
+        region_df = pd.DataFrame({
+            "Inductive Limit": AAs,
+            "HF Artefact Limit": BBs,
+            "Kinetic Limit": CCs, 
+            "Diffusive Onset": np.maximum(CCs, DDs),
+            "Diffusive-Capacitive Onset": EEs,
+            "LF Artefact Onset": Fs,
+        }, dtype=pd.Int64Dtype()).replace({-1: pd.NA, nfreqs: pd.NA}).apply(lambda col: col.map(freqs_series))
+
+        region_df["Mass Transport Resolvable"] = has_mass_transport
         region_df["Sample Name"] = sample_names
-
         self._data = self._root._add_metadata_to_data(region_df)
-
-    
-    @staticmethod
-    def _find_kink(region: dict, *, magn: np.ndarray, phase: np.ndarray, min_peak_prominence: float = 0.25) -> None:
-        x = smooth(magn * np.cos(np.radians(phase)))
-        y = smooth(magn * np.sin(np.radians(phase)))
-
-        # Restrict search space to under HF artefact
-        hf_artefact_idx = region.get("HF Artefact") or 0
-        
-        curv = curvature(x, y)[hf_artefact_idx:]
-
-        # We go from HF to LF, so we want positive curvature peaks
-        kink_idc, _ = sig.find_peaks(curv)
-        if not len(kink_idc):
-            region |= {"Main Kink": None, "Secondary Kink": None}
-            return
-
-        # Normalize against the strongest peak
-        curv = curv / np.max(curv[kink_idc])
-        kink_idc = kink_idc[curv[kink_idc] >= min_peak_prominence]
-        kink_idc = kink_idc[np.argsort(curv[kink_idc])[::-1]]
-
-        
-        main_kink_idx = kink_idc[0]
-        later = kink_idc[kink_idc > main_kink_idx]
-        second_kink_idx = later[0] if len(later) else None
-
-        region |= {
-            "Main Kink": main_kink_idx + hf_artefact_idx,
-            "Secondary Kink": None if second_kink_idx is None else second_kink_idx + hf_artefact_idx,
-        }
-
-    @staticmethod
-    def _find_hf_artefact(region: dict, *, magn: np.ndarray, phase: np.ndarray) -> None:
-        slope = np.gradient(smooth(magn))
-
-        pos_idc = np.where(slope < 0)[0]
-
-        if len(pos_idc):
-            target_idx = pos_idc[-1] + 1
-            b, e = max(0, target_idx - _HF_ARTEFACT_SEARCH_SPREAD), min(len(magn), target_idx + _HF_ARTEFACT_SEARCH_SPREAD)
-            hf_artefact_idx = b + np.argmax(phase[b:e])
-        else:
-            hf_artefact_idx = None
-
-        region |= {"HF Artefact": hf_artefact_idx}
-
-    @staticmethod
-    def _find_lf_artefact(region: dict, *, phase: np.ndarray) -> None:
-        kink_idx = region.get("Main Kink") or 0
-
-        peak_idc, _ = sig.find_peaks(-smooth(phase)[kink_idx:])
-
-        region |= {"LF Artefact": peak_idc[0] + kink_idx if len(peak_idc) else None}
-
-    @staticmethod
-    def _find_capacitive_limit(region: dict, *, phase: np.ndarray) -> None:
-        inductive_mask = np.logical_or.accumulate((phase > 0)[::-1])[::-1]
-        idc = np.where(~inductive_mask)[0]
-
-        region |= {"Capacitive Limit": idc[0] if len(idc) else None}
