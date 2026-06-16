@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from seaborn import FacetGrid
 from typing import Callable, Iterable
 
-from . import core, region_plots
+from . import core
 from ..data.experiment import Experiment, SimulatedExperiment
 from .plotresult import PlotResult
 from ..config import DataSeriesInfo
@@ -29,17 +29,19 @@ def _combine_experiment_data(
 
     do_transform = False
     if len([exp for exp in experiments if not isinstance(exp, SimulatedExperiment)]) > 1:
-        diff_col = kwargs.get("hue") or kwargs.get("tile")
+        diff_col = kwargs.get("hue") or kwargs.get("tile") or kwargs.get("row")
         if diff_col is None:
             kwargs["hue"] = "Experiment Name"
         else:
-            do_transform = diff_col != "Experiment Name"
+            do_transform = diff_col not in {"Experiment Name", "Sample Name"}
 
     combined = []
     for extractor in extractors:
         df = pd.concat([extractor(exp) for exp in experiments], axis=0, ignore_index=True)
-        if do_transform:
-            transform(df)
+
+        if do_transform and diff_col in df.columns:
+            df[diff_col] = df["Experiment Name"] + " - " + df[diff_col].astype(str)
+
         combined.append(df)
 
     return combined[0] if len(extractors) == 1 else combined
@@ -60,23 +62,9 @@ def fresponse(
     exps: Experiment | list[Experiment], 
     y: str, 
     title: str | None = None, 
-    show_regions: bool | Iterable[str] = False, 
     **kwargs
 ) -> PlotResult:
     res = plot(exps, x="Frequency", y=y, title=title, **kwargs)
-
-    if show_regions:
-        real_exps = [exp for exp in _listify(exps) if not isinstance(exp, SimulatedExperiment)]
-        data, region_data = _combine_experiment_data(
-            real_exps, 
-            lambda e: e.data,
-            lambda e: e.analysis.regions.data,
-            kwargs=kwargs)
-        assert isinstance(data, pd.DataFrame) and isinstance(region_data, pd.DataFrame)
-
-        with res as (fig, _):
-            region_plots._draw_markers(fig.axes, data, region_data, show_regions, "Frequency", kwargs)
-
     return res
 
 def _prepare_bode_grid_data(data: pd.DataFrame, components: list[str], tile_col: str | None) -> pd.DataFrame:
@@ -143,7 +131,6 @@ def bode(
     title: str | None = None,
     *,
     offset_correct: bool = False,
-    show_regions: bool | Iterable[str] = False,
     phase_clip: tuple[float, float] | bool = False,
     **kwargs,
 ) -> PlotResult:
@@ -197,17 +184,6 @@ def bode(
 
         for axes, y_axis in zip((magn_axes, phase_axes), components):
             _bode_adjust_axes_kind(axes, y_axis, tile_vals)
-
-        # Add lines indicating region boundaries        
-        if show_regions:
-            data = data[data["Data Origin"] == "Measured"]
-
-            real_exps = [exp for exp in _listify(exps) if not isinstance(exp, SimulatedExperiment)]
-            region_data = _combine_experiment_data(real_exps, lambda e: e.analysis.regions.data, kwargs=kwargs)
-            assert isinstance(region_data, pd.DataFrame)
-
-            for axes in (magn_axes, phase_axes):
-                region_plots._draw_markers(axes.flat, data, region_data, show_regions, "Frequency", kwargs | {"tile": tile_col})
 
         # Phase clip
         if isinstance(phase_clip, bool) and phase_clip:

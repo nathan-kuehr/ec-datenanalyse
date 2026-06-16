@@ -1,5 +1,6 @@
 import pandas as pd
 import seaborn as sns
+import numpy as np
 
 from matplotlib import colors, pyplot as plt
 from matplotlib.patches import Rectangle
@@ -10,10 +11,11 @@ from typing import Iterable
 
 import matplotlib.ticker as ticker
 
-from . import core, region_plots
+from . import core
 from .covariance import CovarianceVisualization
 from .basics import _combine_experiment_data, _listify
 from .plotresult import PlotResult
+from ..analysis.regions import Regions
 from ..data.experiment import Experiment, SimulatedExperiment
 from ..config import (
     FIGURE_SETTINGS,
@@ -149,7 +151,6 @@ def nyquist(
     Rspan: float | None = None,
     offset_correct: bool = True,
     add_inset: bool = True,
-    show_regions: bool | Iterable[str] = False,
     add_frequency_labels: bool = False,
     **kwargs,
 ) -> PlotResult:
@@ -247,15 +248,6 @@ def nyquist(
                 sns.move_legend(ax, "best", ncol=legend._ncols)
 
             axes = [ax]
-
-        if show_regions:
-            real_exps = [exp for exp in _listify(data) if not isinstance(exp, SimulatedExperiment)]
-            region_data = _combine_experiment_data(
-                real_exps, lambda e: e.analysis.regions.data, kwargs=kwargs
-            )
-            assert isinstance(region_data, pd.DataFrame)
-
-            region_plots._draw_markers(fig.axes, df, region_data, show_regions, x_axis, kwargs | tile_config)
 
         if errorbar is not None:
             for ax, cv in zip(axes, covvis):
