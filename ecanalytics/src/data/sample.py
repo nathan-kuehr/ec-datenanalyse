@@ -4,7 +4,6 @@ import io
 import pandas as pd
 import numpy as np
 
-from collections import defaultdict
 from itertools import groupby
 
 from ..config import EIS_SAMPLE_REQUIRED_DATA_SERIES
@@ -148,26 +147,28 @@ class Sample:
         if not files.is_allowed_file(file_path):
             raise FileNotFoundError(f"Unsupported/Nonexistent file: {file_path}")
 
-        # Vote-based device profile detection: encoding + header marker
-        votes: defaultdict[DeviceProfile, int] = defaultdict(int)
-
+        # Try utf-16 first, fall back to utf-8
         try:
             with open(file_path, "r", encoding="utf-16") as file:
                 content = file.read()
-                votes[PALMSENS] += 1
         except UnicodeDecodeError:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as file:
                 content = file.read()
-                votes[BIOLOGIC] += 1
 
         if "Impedance Spectroscopy" not in content:
             raise ValueError(
                 f"File '{file_path}' does not contain Impedance Spectroscopy data."
             )
 
-        votes[BIOLOGIC if content.startswith("EC-Lab ASCII FILE") else PALMSENS] += 1
-
-        profile = max(votes, key=lambda k: votes[k])
+        # Try detecting profile via the header signature
+        profile = next(
+            (p for p in (BIOLOGIC, PALMSENS) if any(k in content for k in p.series_naming)),
+            None,
+        )
+        if profile is None:
+            raise ValueError(
+                f"Could not detect device profile for '{file_path}'."
+            )
 
         return cls(file_path, content, profile)
 
