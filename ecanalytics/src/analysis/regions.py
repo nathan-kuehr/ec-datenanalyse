@@ -127,28 +127,28 @@ class Regions:
         phis = -np.degrees(np.arctan2(np.gradient(smooth_xs, axis=1), np.gradient(smooth_rs, axis=1)))
         dphis = np.gradient(phis, axis=1)
 
-        ## Point A: 
+        ## Point C: 
         # -> transistion between semicircle and diffusion part
         # A curvature based approach was used before but didn't work out as well
         peaks = [
             sig.find_peaks(-phi, prominence=args["a_minprom"], width=args["a_minw"])[0] 
             for phi, args in zip(phis, args_list)
         ]
-        CCs = np.array([peak[-1] if len(peak) else -1 for peak in peaks], dtype=int)
+        Cs = np.array([peak[-1] if len(peak) else -1 for peak in peaks], dtype=int)
 
         ## Point B:
         # -> beginning of capacitive tail
         # A first analysis was done using curvature peaks but this is easier
         cap_angles = np.array([args["cap_angle"] for args in args_list])
-        cap_tail_mask = (phis >= cap_angles[:, None]) & (np.arange(nfreqs) > CCs[:, None])
-        EEs = np.where(np.any(cap_tail_mask, axis=1), np.argmax(cap_tail_mask, axis=1), -1).astype(int)
+        cap_tail_mask = (phis >= cap_angles[:, None]) & (np.arange(nfreqs) > Cs[:, None])
+        Es = np.where(np.any(cap_tail_mask, axis=1), np.argmax(cap_tail_mask, axis=1), -1).astype(int)
 
         ## Point C:
         # -> sometimes A is not perfectly well chosen but a bit too early.
         # Take minimum between A and B
         freq_indices = np.arange(nfreqs)
-        dsegment = (freq_indices[None, :] >= CCs[:, None]) & (freq_indices[None, :] < EEs[:, None])
-        DDs = np.argmax(np.where(dsegment, smooth_xs, -np.inf), axis=1)
+        dsegment = (freq_indices[None, :] >= Cs[:, None]) & (freq_indices[None, :] < Es[:, None])
+        Ds = np.argmax(np.where(dsegment, smooth_xs, -np.inf), axis=1)
 
         ## Mass transport ? 
         # -> if we see that there is a plateau in φ (<=> two peaks in dφ <=> a valley in -dφ), there is diffusive:mass transport region here
@@ -159,27 +159,27 @@ class Regions:
         ])
         has_mass_transport = nvalleys > 0
 
-        ## Point D:
-        # -> sometimes we have weird HF artefacts
-        # Offset-corrected impedance (calculated directly here) shows local minumum
-        dmagns = np.gradient(np.hypot(smooth_rs, smooth_xs), axis=1)
-        phases = np.atan2(smooth_xs, smooth_rs)
-        
-        # First iteration: find last negative dmagn
-        neg_dmagn_mask = (dmagns < 0) & (freq_indices < np.where(CCs < 0, nfreqs, CCs)[:, None])
-        BBs = np.where(neg_dmagn_mask, freq_indices, -1).max(axis=1)
-
-        # Second iteration: ascend into phase peak
-        BBs = np.array([e if e < 0 else descend(-phase, e) for phase, e in zip(phases, BBs)])
+        ## Point B (HF Artefact Limit):
+        # -> lowest point of the main semicircle on the HF side, i.e. the rightmost local
+        #    minimum of Neg. Reactance (= -smooth_xs) within the HF segment (freq_index < CCs).
+        hf_end = np.where(Cs < 0, nfreqs, Cs)
+        Bs = np.full(nsamples, -1, dtype=int)
+        for i in range(nsamples):
+            seg = -smooth_xs[i, :hf_end[i]]  # Neg. Reactance, HF segment
+            if len(seg) < 3:
+                continue
+            minima, _ = sig.find_peaks(-seg)
+            if len(minima):
+                Bs[i] = minima[-1]
 
         ## Point E:
         # -> inductive artefacts
-        AAs = np.where(raw_xs > 0, freq_indices, -1).max(axis=1)
+        As = np.where(raw_xs > 0, freq_indices, -1).max(axis=1)
 
         ## Point F:
         tail_angle_tols = np.array([args["tail_angle_tol"] for args in args_list])
 
-        max_phis_idc = np.maximum(EEs, np.argmax(phis, axis=1))
+        max_phis_idc = np.maximum(Es, np.argmax(phis, axis=1))
         max_phis = phis[np.arange(nsamples), max_phis_idc]
 
         tail_drop_mask = ((phis < (max_phis - tail_angle_tols)[:, None])) & (freq_indices[None, :] > max_phis_idc[:, None])
@@ -190,11 +190,11 @@ class Regions:
         freqs_series = pd.Series(freqs)
 
         region_df = pd.DataFrame({
-            "Inductive Limit": AAs,
-            "HF Artefact Limit": BBs,
-            "Kinetic Limit": CCs, 
-            "Diffusive Onset": np.maximum(CCs, DDs),
-            "Diffusive-Capacitive Onset": EEs,
+            "Inductive Limit": As,
+            "HF Artefact Limit": Bs,
+            "Kinetic Limit": Cs, 
+            "Diffusive Onset": np.maximum(Cs, Ds),
+            "Diffusive-Capacitive Onset": Es,
             "LF Artefact Onset": Fs,
         }, dtype=pd.Int64Dtype()).replace({-1: pd.NA, nfreqs: pd.NA}).apply(lambda col: col.map(freqs_series))
 
