@@ -20,12 +20,36 @@ from ..config import (
     DEFAULT_LINEPLOT_SETTINGS,
 )
 
-
 _INSET_AXES_BOUNDS = (0.09, 0.67, 0.3, 0.3)
 _INSET_TICK_LABELSIZE = 7
 _ERRORBAR_FILL_ALPHA = 0.1
 _ERRORBAR_EDGE_LINEWIDTH = 0.5
 
+def _auto_zoom(data: pd.DataFrame, region_data: pd.DataFrame, *, offset_correct: bool, gran: float | None = None, ax: Axes | None = None) -> tuple[float, float]:
+    dco_data = Regions.select_in(data, region_data, "Diffusive-Capacitive Onset")
+    if dco_data.empty:
+        return 60, 50 # Some good values for my data
+
+    x_axis = "Resistance"
+    if offset_correct:
+        x_axis = f"Offset-Corrected {x_axis}"
+
+    xmin = data[x_axis].min()
+    xmax = dco_data[x_axis].max()
+
+    if gran is None:
+        gran = 5 * 10 ** max(0, int(np.floor(np.log10(xmax))) - 2)
+
+    xmin = gran * (np.floor(xmin / gran) - 1)
+    xmax = gran * (np.ceil(xmax / gran) + 1)
+    xspan = xmax - xmin
+
+    if ax is not None:
+        ax.set(xlim=(xmin, xmax), ylim=(0, xspan))
+
+    return xmin, xspan
+
+    
 
 def _draw_inset_axes(data: pd.DataFrame, ax: Axes, kwargs: dict) -> Axes:
     with plt.rc_context(FIGURE_SETTINGS):
@@ -121,17 +145,27 @@ def _prepare_covvis(
 def nyquist(
     data: Experiment | list[Experiment],
     title: str | None = None,
-    Rmin: float = 60,
-    Rspan: float = 50,
+    Rmin: float | None = None,
+    Rspan: float | None = None,
     offset_correct: bool = True,
     add_inset: bool = True,
     show_regions: bool | Iterable[str] = False,
     add_frequency_labels: bool = False,
     **kwargs,
 ) -> PlotResult:
-    df: pd.DataFrame = _combine_experiment_data(data, lambda x: x.data, kwargs=kwargs)
+    if (Rmin is None and Rspan is None):
+        df, region_df = _combine_experiment_data(
+            data,
+            lambda x: x.data,
+            lambda x: x.analysis.regions.data,
+            kwargs=kwargs,
+        )
+        Rmin, Rspan = _auto_zoom(df, region_df, offset_correct=offset_correct)
+    else:
+        df = _combine_experiment_data(data, lambda x: x.data, kwargs=kwargs)
+        
 
-    # Determine x axis 
+    # Determine x axis
     x_axis = "Resistance"
     if offset_correct:
         x_axis = f"Offset-Corrected {x_axis}"

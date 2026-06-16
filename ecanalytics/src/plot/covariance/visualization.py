@@ -34,9 +34,9 @@ def _cached_covariance_calculation(
         return positions, np.full((nfreqs, 2, 2), np.nan), None
 
     covs = grouped.cov().to_numpy().reshape(nfreqs, 2, 2)
-    covs += _SINGULARITY_EPSILON * np.eye(2)  # Fallback against singular matrices
+    covs = covs + _SINGULARITY_EPSILON * np.eye(2)  # Fallback against singular matrices
 
-    covs *= factor
+    covs = covs * factor
 
     visualization = geometry.hull if calc_hull else geometry.ellipse_parameters
     return positions, covs, visualization(positions, covs)

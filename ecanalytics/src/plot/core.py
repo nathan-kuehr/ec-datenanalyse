@@ -164,12 +164,12 @@ def _set_axes_from_series_info(
 ) -> None:
     config = {}
 
-    if x is not None and x != "Value":
+    if x is not None and x in series_info:
         config |= {
             "xlabel": _make_axes_label(x, series_info[x]),
             "xscale": series_info[x].scale,
         }
-    if y is not None and y != "Value":
+    if y is not None and y in series_info:
         config |= {
             "ylabel": _make_axes_label(y, series_info[y]),
             "yscale": series_info[y].scale,
@@ -282,7 +282,8 @@ def _coreplot(
         }
 
         # By default, set a color if columns are specified
-        sns_args["hue"] = sns_args.get("hue") or sns_args.get("col")
+        if not "hue" in sns_args:
+            sns_args["hue"] = sns_args.get("col")
         
         # Turn it of for the grid
         figure_settings["figure.constrained_layout.use"] = False

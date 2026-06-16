@@ -17,6 +17,8 @@ EIS_EXPERIMENT_SERIES_INFO = {
     "Offset-Corrected Impedance": DataSeriesInfo("Z_oc", "$\\Omega$", "log"),
     "Offset-Corrected Phase": DataSeriesInfo("varphi_oc", "°", "linear"),
     "Neg. Reactance": DataSeriesInfo("-X", "$\\Omega$", "log"),
+    "Tangent Angle": DataSeriesInfo("varphi", "°", "linear"),
+    "Tangent Angle Derivative": DataSeriesInfo(r"$\partial\varphi$", "°/idx", "linear")
 }
 
 DATA_QUALITY_SERIES_INFO = {

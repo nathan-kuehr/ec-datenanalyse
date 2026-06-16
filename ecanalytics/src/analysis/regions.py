@@ -6,6 +6,7 @@ from scipy import signal as sig
 
 import matplotlib.pyplot as plt
 
+from typing import Iterable
 from ._args import call_argument_parser
 from ..data.experiment import Experiment
 
@@ -47,6 +48,7 @@ class Regions:
         self._root = root
 
         self._data: pd.DataFrame | None = None
+        self._curve_data: pd.DataFrame | None = None
 
     @property
     def data(self) -> pd.DataFrame:
@@ -54,6 +56,13 @@ class Regions:
             self()
             assert self._data is not None
         return self._data
+    
+    @property
+    def curve_data(self) -> pd.DataFrame:
+        if self._curve_data is None:
+            self()
+            assert self._curve_data is not None
+        return self._curve_data
 
     def make_mask(self, region: str, overlay_valid: bool = True) -> np.ndarray:
         f = self._root.data["Frequency"].unique()[None, :]
@@ -114,7 +123,7 @@ class Regions:
         # Smooth
         smooth_rs, smooth_xs = smooth(raw_rs), smooth(raw_xs)
 
-        # Use tangent angle to find transition between semicircle and diffusion part
+        # Use tangent angle (in Nyquist plot w/ inverted Im part) to find transition between semicircle and diffusion part
         phis = -np.degrees(np.arctan2(np.gradient(smooth_xs, axis=1), np.gradient(smooth_rs, axis=1)))
         dphis = np.gradient(phis, axis=1)
 
@@ -192,3 +201,31 @@ class Regions:
         region_df["Mass Transport Resolvable"] = has_mass_transport
         region_df["Sample Name"] = sample_names
         self._data = self._root._add_metadata_to_data(region_df)
+
+        curve_df = pd.DataFrame({
+            "Frequency": np.tile(freqs, nsamples),
+            "Tangent Angle": phis.reshape(-1, 1).squeeze(),
+            "Tangent Angle Derivative": dphis.reshape(-1, 1).squeeze(),
+            "Sample Name": np.repeat(sample_names, nfreqs)
+        })
+        self._curve_data = self._root._add_metadata_to_data(curve_df)
+
+    @staticmethod
+    def select_in(data: pd.DataFrame, region: pd.DataFrame, rpoints: str | Iterable[str] | None = None) -> pd.DataFrame:
+        add_point_col = not isinstance(rpoints, str)
+
+        if rpoints is None:
+            rpoints = ["Inductive Limit", "HF Artefact Limit", "Kinetic Limit", "Diffusive Onset", "Diffusive-Capacitive Onset", "LF Artefact Onset"]
+        elif isinstance(rpoints, str):
+            rpoints = [rpoints]
+
+        regions_long = region.melt(
+            id_vars=["Sample Name"],
+            value_vars=rpoints,
+            var_name="Point",
+            value_name="Frequency",
+        )
+
+        selected = pd.merge(data, regions_long, how="inner", on=["Frequency", "Sample Name"])
+
+        return selected if add_point_col else selected.drop("Point", axis=1)

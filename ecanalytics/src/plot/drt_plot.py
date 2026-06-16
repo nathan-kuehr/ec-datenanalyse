@@ -71,7 +71,7 @@ def drt(
     **kwargs,
 ) -> PlotResult:
     data, peak_data = _combine_experiment_data(
-        _listify(exp),
+        exp,
         lambda e: e.analysis.drt.data,
         lambda e: e.analysis.drt.peak_select(peaks_to_draw),
         kwargs=kwargs,
