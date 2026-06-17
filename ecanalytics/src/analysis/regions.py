@@ -42,7 +42,7 @@ def descend(vec: np.ndarray, i: int) -> int:
             i = j
 
 class Regions:
-    _DEFAULT_CALCULATION_ARGS = {"a_minprom": 25.0, "a_minw": 2.0, "cap_angle": 70.0, "d_minprom": 0.15, "tail_angle_tol": 3}
+    _DEFAULT_CALCULATION_ARGS = {"a_minprom": 25.0, "a_minw": 2.0, "cap_angle": 70.0, "d_minprom": 0.05, "tail_angle_tol": 3}
 
     def __init__(self, root: Experiment) -> None:
         self._root = root
@@ -127,75 +127,66 @@ class Regions:
         phis = -np.degrees(np.arctan2(np.gradient(smooth_xs, axis=1), np.gradient(smooth_rs, axis=1)))
         dphis = np.gradient(phis, axis=1)
 
-        ## Point C: 
+        ## Kinetic Limit
         # -> transistion between semicircle and diffusion part
         # A curvature based approach was used before but didn't work out as well
         peaks = [
             sig.find_peaks(-phi, prominence=args["a_minprom"], width=args["a_minw"])[0] 
             for phi, args in zip(phis, args_list)
         ]
-        Cs = np.array([peak[-1] if len(peak) else -1 for peak in peaks], dtype=int)
+        kin_lims = np.array([peak[-1] if len(peak) else nfreqs for peak in peaks], dtype=int)
 
-        ## Point B:
+        ## Diffusive-Capacitive Onset:
         # -> beginning of capacitive tail
         # A first analysis was done using curvature peaks but this is easier
         cap_angles = np.array([args["cap_angle"] for args in args_list])
-        cap_tail_mask = (phis >= cap_angles[:, None]) & (np.arange(nfreqs) > Cs[:, None])
-        Es = np.where(np.any(cap_tail_mask, axis=1), np.argmax(cap_tail_mask, axis=1), -1).astype(int)
+        cap_tail_mask = (phis >= cap_angles[:, None]) & (np.arange(nfreqs) > kin_lims[:, None])
+        diff_cap_onsets = np.where(np.any(cap_tail_mask, axis=1), np.argmax(cap_tail_mask, axis=1), -1).astype(int)
 
-        ## Point C:
+        ## Diffusive-Onset:
         # -> sometimes A is not perfectly well chosen but a bit too early.
         # Take minimum between A and B
         freq_indices = np.arange(nfreqs)
-        dsegment = (freq_indices[None, :] >= Cs[:, None]) & (freq_indices[None, :] < Es[:, None])
-        Ds = np.argmax(np.where(dsegment, smooth_xs, -np.inf), axis=1)
+        segment = (freq_indices[None, :] >= kin_lims[:, None]) & (freq_indices[None, :] < diff_cap_onsets[:, None])
+        diff_onsets = np.maximum(kin_lims, np.argmax(np.where(segment, smooth_xs, -np.inf), axis=1))
 
         ## Mass transport ? 
         # -> if we see that there is a plateau in φ (<=> two peaks in dφ <=> a valley in -dφ), there is diffusive:mass transport region here
-        norm_dphis = dphis / np.max(np.where(dsegment, dphis, 1e-10), axis=1, keepdims=True)
-        nvalleys = np.array([
-            len(sig.find_peaks(-ndphi, prominence=args["d_minprom"])[0]) 
+        norm_dphis = dphis / np.max(np.where(segment, dphis, 1e-10), axis=1, keepdims=True)
+        valleys = np.array([
+            sig.find_peaks(-ndphi, prominence=args["d_minprom"])[0] 
             for ndphi, args in zip(norm_dphis, args_list)
         ])
-        has_mass_transport = nvalleys > 0
 
-        ## Point B (HF Artefact Limit):
-        # -> lowest point of the main semicircle on the HF side, i.e. the rightmost local
-        #    minimum of Neg. Reactance (= -smooth_xs) within the HF segment (freq_index < CCs).
-        hf_end = np.where(Cs < 0, nfreqs, Cs)
-        Bs = np.full(nsamples, -1, dtype=int)
-        for i in range(nsamples):
-            seg = -smooth_xs[i, :hf_end[i]]  # Neg. Reactance, HF segment
-            if len(seg) < 3:
-                continue
-            minima, _ = sig.find_peaks(-seg)
-            if len(minima):
-                Bs[i] = minima[-1]
+        has_mass_transport = np.array([np.sum(s[p]) > 0 for s, p in zip(segment, valleys)])
 
-        ## Point E:
-        # -> inductive artefacts
-        As = np.where(raw_xs > 0, freq_indices, -1).max(axis=1)
+        ## HF Artefact Limit:
+        valleys = [sig.find_peaks(x[:lim])[0] for x, lim in zip(smooth_xs, kin_lims)]
+        hf_artefact_lims = np.array([valley[-1] if len(valley) else nfreqs for valley in valleys], dtype=int)
+
+        ## Inductive artefacts
+        inductive_lims = np.where(raw_xs > 0, freq_indices, -1).max(axis=1)
 
         ## Point F:
         tail_angle_tols = np.array([args["tail_angle_tol"] for args in args_list])
 
-        max_phis_idc = np.maximum(Es, np.argmax(phis, axis=1))
+        max_phis_idc = np.maximum(diff_cap_onsets, np.argmax(phis, axis=1))
         max_phis = phis[np.arange(nsamples), max_phis_idc]
 
         tail_drop_mask = ((phis < (max_phis - tail_angle_tols)[:, None])) & (freq_indices[None, :] > max_phis_idc[:, None])
 
-        Fs = np.where(tail_drop_mask, freq_indices, nfreqs).min(axis=1)
+        lf_artefact_lims = np.where(tail_drop_mask, freq_indices, nfreqs).min(axis=1)
 
         # Put everything together
         freqs_series = pd.Series(freqs)
 
         region_df = pd.DataFrame({
-            "Inductive Limit": As,
-            "HF Artefact Limit": Bs,
-            "Kinetic Limit": Cs, 
-            "Diffusive Onset": np.maximum(Cs, Ds),
-            "Diffusive-Capacitive Onset": Es,
-            "LF Artefact Onset": Fs,
+            "Inductive Limit": inductive_lims,
+            "HF Artefact Limit": hf_artefact_lims,
+            "Kinetic Limit": kin_lims, 
+            "Diffusive Onset": diff_onsets,
+            "Diffusive-Capacitive Onset": diff_cap_onsets,
+            "LF Artefact Onset": lf_artefact_lims,
         }, dtype=pd.Int64Dtype()).replace({-1: pd.NA, nfreqs: pd.NA}).apply(lambda col: col.map(freqs_series))
 
         region_df["Mass Transport Resolvable"] = has_mass_transport

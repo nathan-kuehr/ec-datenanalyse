@@ -61,13 +61,15 @@ class Randles(Model):
         peak_data = exp.analysis.drt.peak_select([self._charac_peak_tau])
         regions_data = exp.analysis.regions.data
 
-        # Get only the 90° diffusive region
-        diffusive_masks = exp.analysis.regions.make_mask(region="diffusive:90", overlay_valid=True)
+        # Get only the diffusive-capacitive region
+        diffusive_masks = exp.analysis.regions.make_mask(region="diffusive:capacitive", overlay_valid=True)
 
-        # Guess R_s as the x-axis offset for capacitive frequencies
-        r_s = regions_data.merge(
+        # Guess R_s as the x-axis offset for capacitive frequencies. Fall back to the
+        # highest measured frequency when no Inductive Limit was detected.
+        r_s_freq = regions_data["Inductive Limit"].fillna(data["Frequency"].max())
+        r_s = regions_data.assign(_r_s_freq=r_s_freq).merge(
             data,
-            left_on=["Sample Name", "Capacitive Limit"],
+            left_on=["Sample Name", "_r_s_freq"],
             right_on=["Sample Name", "Frequency"],
             how="left",
         )["Resistance"].to_numpy()
@@ -87,9 +89,10 @@ class Randles(Model):
         
         # Estimate B_diff from the kink 45°->90°. If no kink is found, it is shadowed by semicircle
         # -> use semicircle tau as estimation
-        secondary_kink = regions_data["Secondary Kink"].to_numpy(dtype=float)
+        mass_transport_resolvable = regions_data["Mass Transport Resolvable"].to_numpy(dtype=bool)
+        secondary_kink = regions_data["Diffusive-Capacitive Onset"].to_numpy(dtype=float)
         secondary_kink = np.where(
-            np.isnan(secondary_kink), 1 / (2 * np.pi * taus), secondary_kink
+            mass_transport_resolvable, secondary_kink, 1 / (2 * np.pi * taus)
         )
         b_diff = 4 / (2 * np.pi * secondary_kink)
 

@@ -124,7 +124,6 @@ def evaluate_peak_curves(peak_data: pd.DataFrame, tau_grid: np.ndarray) -> np.nd
 
 class DRT:
     _DEFAULT_CALCULATION_ARGS = {
-        "cutoff_frequency": 15,  # Hz
         "method": "tr-nnls",
     }
 
@@ -155,8 +154,8 @@ class DRT:
             args, kwargs, self._DEFAULT_CALCULATION_ARGS, self._root.sample_names, "DRT"
         )
 
-        freqs = data["Frequency"].unique()
-        masks = [freqs > args.pop("cutoff_frequency") for args in args_list]
+        # Get masks
+        masks = [m for m in ~self._root.analysis.regions.make_mask("diffusive:capacitive", overlay_valid=False)]
         input_list = ImpedancePayload.from_data(data, masks)
 
         payloads: list[DRTPayload] = parallel.multiprocess(

@@ -17,6 +17,7 @@ from ..data.experiment import Experiment
 def _decorate_facet(data: pd.DataFrame, *, fspan: tuple[float, float], curve_data: pd.DataFrame, region_data: pd.DataFrame, **__):
     ax = plt.gca()
     panel = data["Panel"].iloc[0]
+    name = data["Sample Name"].iloc[0]
     fmin, fmax = fspan
 
     # Set axes correctly
@@ -45,7 +46,8 @@ def _decorate_facet(data: pd.DataFrame, *, fspan: tuple[float, float], curve_dat
         f_A = pos.get("Kinetic Limit", (fmax,))[0]
         f_B = pos.get("Diffusive-Capacitive Onset", (fmin,))[0]
         if f_A > f_B:
-            ax.axvspan(f_A, f_B, color="#10b981", alpha=0.1)
+            has_mass_transport = region_data[region_data["Sample Name"] == name]["Mass Transport Resolvable"].iloc[0]
+            ax.axvspan(f_A, f_B, color="#10b981" if has_mass_transport else "#d73818", alpha=0.1)
 
 
 def _prepare_regions_dfs(exp: Experiment | list[Experiment], kwargs: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
