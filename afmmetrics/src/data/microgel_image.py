@@ -119,10 +119,8 @@ class MicrogelImage(ImageMixinBase, MicrogelStatsMixin):
         micro = micro.drop(columns=["centroid_weighted-0", "centroid_weighted-1"])
 
         # Get nearest neighbor distance for each microgel
-        centroids_um = denoise.px_to_um(centroids)
-
-        tree = spatial.KDTree(centroids_um)
-        dists, _ = tree.query(centroids_um, k=2)
+        tree = spatial.KDTree(centroids)
+        dists, _ = tree.query(centroids, k=2)
 
         micro["Nearest Neighbor Distance"] = dists[:, 1] * 1e3
 
@@ -220,15 +218,15 @@ class MicrogelImage(ImageMixinBase, MicrogelStatsMixin):
             seeds = seeds[~invalid_seeds_mask]
 
         segment = topology.copy()
-        segment.data = color.label2rgb(
-            label=seg,
-            image=(
-                (topology.data - topology.data.min())
-                / (topology.data.max() - topology.data.min() + _INTENSITY_NORM_EPSILON)
-            ),
-            alpha=_OVERLAY_ALPHA,
-            kind="overlay",
+        segment.data = color.gray2rgb(
+            (topology.data - topology.data.min())
+            / (topology.data.max() - topology.data.min() + _INTENSITY_NORM_EPSILON)
         )
+        
+        boundaries = segm.find_boundaries(seg, mode="inner")
+        colored_labels = color.label2rgb(seg)
+
+        segment.data[boundaries] = colored_labels[boundaries]
         segment.mask = seg
 
         # Mark initial seeds

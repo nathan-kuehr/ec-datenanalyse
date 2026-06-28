@@ -1,4 +1,5 @@
 import pandas as pd
+from tqdm import tqdm
 
 from collections.abc import Callable
 
@@ -37,7 +38,12 @@ class MicrogelSeries(SampleContainer, MicrogelStatsMixin):
     def load(
         self, folder_path: str, grouping: dict[str, str | Callable] | None = None
     ) -> "MicrogelSeries":
-        for image in MicrogelImage.batch_load_factory(folder_path):
+        images = MicrogelImage.batch_load_factory(folder_path)
+
+        for image in tqdm(images,
+                total=len(images),
+                desc=f"Loading images of series '{self._name}'",
+            ):
             if (
                 parsed := ec_files.parse_file_name(image.path, require_sample_no=False)
             ) is None:
