@@ -53,7 +53,7 @@ def _cached_fit_circuit(
         circuit = fit_result.circuit
 
     final_params = {
-        label: e.get_value(symbol)
+        label.strip("_"): e.get_value(symbol)
         for symbol, label, e in _iterate_elements(circuit)
     }
 

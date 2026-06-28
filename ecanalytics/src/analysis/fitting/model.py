@@ -7,7 +7,7 @@ import pandas as pd
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from pyimpspec import Circuit
+from pyimpspec import Circuit, DataSet
 from typing import Iterator, NamedTuple
 
 from .stage import FittingStage, FittingProcedure
@@ -23,8 +23,6 @@ class CircuitElementReference(NamedTuple):
 def _iterate_elements(circuit: Circuit) -> Iterator[CircuitElementReference]:
     for element in circuit.get_elements(recursive=True):
         label = element.get_label()
-        if label is None or label == "":
-            raise ValueError("Each circuit element must be unique and posess an index!")
         
         for symbol in element.get_values().keys():
             yield CircuitElementReference(symbol, f"{symbol}_{label}", element)
@@ -32,24 +30,30 @@ def _iterate_elements(circuit: Circuit) -> Iterator[CircuitElementReference]:
 
 def _apply_worker_instruction(
     circuit: Circuit, 
-    data: pyimpspec.DataSet, 
+    data: DataSet, 
     stage: FittingStage,
     hard_lims: dict[str, tuple[float, float]],
 ) -> None:
     for symbol, label, element in _iterate_elements(circuit):
+        key = label.strip("_")
         value = element.get_value(symbol)
 
-        if label in stage.fix:
+        if key in stage.fix:
             element.set_fixed(symbol, True)
-        elif label in stage.vary:
-            margin = (stage.vary[label] or np.inf) / 100
+        elif key in stage.vary:
+            # vary holds a +/- percent band around the current parameter value
+            # (in log space for the log_ parameters); None means unbounded.
+            # min/max keeps lo <= hi even when the value is negative.
+            frac = np.inf if stage.vary[key] is None else stage.vary[key] / 100
 
-            vmin, vmax = value * (1 - margin), value * (1 + margin)
+            b1, b2 = value * (1 - frac), value * (1 + frac)
+            lo, hi = min(b1, b2), max(b1, b2)
+
             hmin, hmax = hard_lims[label]
 
             element.set_fixed(symbol, False) \
-                .set_lower_limits(symbol, max(vmin, hmin)) \
-                .set_upper_limits(symbol, min(vmax, hmax))
+                .set_lower_limits(symbol, max(lo, hmin)) \
+                .set_upper_limits(symbol, min(hi, hmax))
         else:
             element.set_fixed(symbol, False)
         
@@ -59,18 +63,29 @@ def _apply_worker_instruction(
         data.set_mask({i: ~v for i, v in enumerate(stage.mask)})
 
 
+def _set_circuit_parameters(circuit: Circuit, vals: dict[str, float]):
+    for symbol, label, element in _iterate_elements(circuit):
+        if (v := vals.get(label.strip("_"))) is not None:
+            element.set_values(symbol, v)
+
+
+
+class ReparametrizationMixin(ABC):
+    def __init__(self) -> None:
+        self._wrapped = self._build_wrapped()
+
+    @abstractmethod
+    def _build_wrapped(self) -> Circuit:
+        pass
+    
+    @abstractmethod
+    def _to_wrapped(self, **kwargs):
+        pass
+
+    
+    
 
 class Model(ABC):
-    def __init__(self):
-        self._lmfit_params = dict()
-
-    def _set_lmfit_params(self, circuit: Circuit) -> Circuit:
-        identifiers = pyimpspec.generate_fit_identifiers(circuit)
-        for ref in _iterate_elements(circuit):
-            self._lmfit_params[ref.label] = identifiers[ref.element][ref.symbol]
-        
-        return circuit
-
     @abstractmethod
     def _build(self) -> Circuit:
         pass
@@ -91,8 +106,7 @@ class Model(ABC):
         circuits: list[Circuit] = []
         for init in inits:
             clone = deepcopy(base)
-            for symbol, label, element in _iterate_elements(clone):
-                element.set_values(symbol, init[label])
+            _set_circuit_parameters(clone, init)
             circuits.append(clone)
         return circuits
     
