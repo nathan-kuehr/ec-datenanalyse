@@ -153,10 +153,10 @@ class Regions:
         ## Mass transport ? 
         # -> if we see that there is a plateau in φ (<=> two peaks in dφ <=> a valley in -dφ), there is diffusive:mass transport region here
         norm_dphis = dphis / np.max(np.where(segment, dphis, 1e-10), axis=1, keepdims=True)
-        valleys = np.array([
+        valleys = [
             sig.find_peaks(-ndphi, prominence=args["d_minprom"])[0] 
             for ndphi, args in zip(norm_dphis, args_list)
-        ])
+        ]
 
         has_mass_transport = np.array([np.sum(s[p]) > 0 for s, p in zip(segment, valleys)])
 

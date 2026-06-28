@@ -188,7 +188,7 @@ def microgel_profile(
         "series_info": MicrogelImage.SERIES_INFO,
     }
     kwargs = DEFAULT_LINEPLOT_SETTINGS | kwargs | config
-    with lineplot(data, **kwargs) as (fig, ax):
+    with lineplot(data, **kwargs) as (fig, _):
         fig.set_size_inches(PROFILE_PLOT_FIGSIZE)
 
     return PlotResult(title, fig, **_clean_plot_args(kwargs))

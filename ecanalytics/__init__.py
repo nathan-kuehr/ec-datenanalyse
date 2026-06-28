@@ -12,6 +12,9 @@ from .src.palette import NEIColorPalette
 from .src.settings import _set as set
 from .src.settings import _reset as reset
 
+# Fitting
+from .src.analysis.fitting import FittingModels
+
 __all__ = [
     "Experiment",
     "plot",
@@ -20,4 +23,5 @@ __all__ = [
     "set",
     "reset",
     "SampleContainer",
+    "FittingModels"
 ]
